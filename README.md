@@ -1,4 +1,4 @@
-# Server Network Topology
+# Tunnel Mesh
 
 服务器网络拓扑管理工具，支持反向隧道、多平台服务、密钥管理。
 
@@ -37,7 +37,7 @@ python3 scripts/linux-tunnel-service.py install --target node3
 ## 目录结构
 
 ```
-server-network-topology/
+tunnel-mesh/
 ├── scripts/
 │   ├── jump-server-manager.py      # 跳板端口管理
 │   ├── linux-tunnel-service.py     # Linux 隧道服务
