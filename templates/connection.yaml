@@ -1,0 +1,30 @@
+# 连接配置模板
+
+# 必填字段
+from: ""                  # 源服务器 ID
+to: ""                    # 目标服务器 ID
+
+# 连接类型
+type: "direct"            # direct/tunnel/vpn/proxy/jump
+
+# 连接状态
+status: "active"          # active/inactive/error/testing
+
+# 路径（跳板）
+via: null                 # 跳板服务器 ID
+via_path: []              # 完整路径（多跳板）
+
+# 认证配置
+auth_method: "key"        # key/password/cert/agent
+auth_user: ""             # 认证用户
+auth_key: ""              # 密钥文件名
+
+# 隧道配置（type=tunnel 时）
+tunnel:
+  local_port: 0           # 本地监听端口
+  remote_port: 22         # 远程目标端口
+  direction: "forward"    # forward/reverse/bidirectional
+
+# 性能指标
+latency_ms: null          # 延迟（自动测试）
+bandwidth_mbps: null      # 带宽

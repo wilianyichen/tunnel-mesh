@@ -1,0 +1,35 @@
+# 服务器注册模板
+
+# 基本信息
+id: ""                    # 必填：全局唯一标识
+alias: ""                 # 必填：显示别名
+
+# 网络地址
+ip_public: null           # 可选：公网 IP
+ip_private: null          # 可选：内网 IP
+ip_vpn: null              # 可选：VPN 网络 IP
+port: 22                  # 必填：SSH 端口
+
+# 用户配置
+user_default: "root"      # 默认登录用户
+users:
+  - name: "root"
+    role: "admin"
+    key_file: ""          # ~/.ssh/ 下的密钥文件名
+
+# 信任等级
+trust_level: "user"       # full/admin/user/guest
+
+# 能力标签
+capabilities: []
+  # - "public-ip"         # 有公网 IP
+  # - "always-online"     # 24小时在线
+  # - "master-node"       # 主控节点
+  # - "vpn-gateway"       # VPN 网关
+  # - "tunnel-endpoint"   # 隧道端点
+
+# 元数据
+metadata:
+  provider: ""            # 云服务商
+  region: ""              # 区域
+  description: ""         # 描述
