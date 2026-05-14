@@ -22,10 +22,10 @@ python3 scripts/tunnel-manager-interactive.py
 
 ```bash
 # 1. 初始化跳板服务器
-python3 scripts/jump-server-manager.py init --host aliyun --ip 8.131.61.234
+python3 scripts/jump-server-manager.py init --host aliyun --ip YOUR_JUMP_SERVER_IP
 
 # 2. 分配端口
-python3 scripts/jump-server-manager.py allocate --target node3 --ip 10.16.82.202
+python3 scripts/jump-server-manager.py allocate --target node3 --ip YOUR_TARGET_IP
 
 # 3. 生成密钥
 python3 scripts/key-manager.py generate --name tunnel-node3

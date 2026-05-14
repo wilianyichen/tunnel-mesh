@@ -180,8 +180,8 @@ sudo systemctl daemon-reload
         if self.ports_file.exists():
             with open(self.ports_file) as f:
                 config = json.load(f)
-            return config.get("jump_ip", "8.131.61.234")
-        return "8.131.61.234"
+            return config.get("jump_ip", "YOUR_JUMP_SERVER_IP")
+        return "YOUR_JUMP_SERVER_IP"
 
 
 def main():

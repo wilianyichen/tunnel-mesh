@@ -9,7 +9,7 @@
 └── 内网服务器主动连接跳板
 
 示例：
-跳板: 8.131.61.234
+跳板: YOUR_JUMP_SERVER_IP
 ├── 端口 2201 → node3 (内网)
 ├── 端口 2202 → windows (内网)
 └── 端口 2203 → server-x (内网)
@@ -40,7 +40,7 @@ apt install autossh
 ```bash
 python3 linux-tunnel-service.py install \
   --target node3 \
-  --jump-ip 8.131.61.234 \
+  --jump-ip YOUR_JUMP_SERVER_IP \
   --local-port 2201
 ```
 
@@ -60,7 +60,7 @@ ExecStart=/usr/bin/autossh -M 0 -N \
   -o ServerAliveCountMax=3 \
   -o ExitOnForwardFailure=yes \
   -R 2201:localhost:22 \
-  root@8.131.61.234
+  root@YOUR_JUMP_SERVER_IP
 Restart=always
 RestartSec=10
 
@@ -86,7 +86,7 @@ chcp 65001
 ```powershell
 python windows-tunnel-service.py install `
   --target windows `
-  --jump-ip 8.131.61.234 `
+  --jump-ip YOUR_JUMP_SERVER_IP `
   --local-port 2202
 ```
 
@@ -111,7 +111,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/id_tunnel_node3 -N "" -C "tunnel-node3"
 ### 部署公钥到跳板
 
 ```bash
-ssh-copy-id -i ~/.ssh/id_tunnel_node3.pub root@8.131.61.234
+ssh-copy-id -i ~/.ssh/id_tunnel_node3.pub root@YOUR_JUMP_SERVER_IP
 ```
 
 ### 密钥权限

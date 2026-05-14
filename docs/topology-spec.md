@@ -16,9 +16,9 @@ server:
   port: 22                        # SSH 端口
   
   # 可选字段
-  ip_public: "8.131.61.234"       # 公网 IP（可从外部直接访问）
+  ip_public: "YOUR_JUMP_SERVER_IP"       # 公网 IP（可从外部直接访问）
   ip_private: "172.28.38.190"     # 内网 IP（VPN/内网环境）
-  ip_vpn: "10.16.73.249"          # VPN 网络 IP
+  ip_vpn: "YOUR_WINDOWS_IP"          # VPN 网络 IP
   
   # 用户配置
   user_default: "root"            # 默认登录用户

@@ -27,8 +27,8 @@ http://master-server:8888/api
 {
   "alias": "node3",
   "ip_public": null,
-  "ip_private": "10.16.82.202",
-  "ip_vpn": "10.16.73.249",
+  "ip_private": "YOUR_TARGET_IP",
+  "ip_vpn": "YOUR_WINDOWS_IP",
   "port": 5122,
   "user_default": "wuxiaoran",
   "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA...",
@@ -48,7 +48,7 @@ http://master-server:8888/api
   "server_id": "node3",
   "message": "服务器已注册",
   "config": {
-    "ssh_config": "Host node3\n    HostName 10.16.82.202\n    Port 5122\n    User wuxiaoran\n    IdentityFile ~/.ssh/id_node3",
+    "ssh_config": "Host node3\n    HostName YOUR_TARGET_IP\n    Port 5122\n    User wuxiaoran\n    IdentityFile ~/.ssh/id_node3",
     "test_command": "ssh node3 'hostname'"
   }
 }
@@ -91,7 +91,7 @@ http://master-server:8888/api
 {
   "id": "node3",
   "alias": "学校内网服务器",
-  "ip_private": "10.16.82.202",
+  "ip_private": "YOUR_TARGET_IP",
   "port": 5122,
   "user_default": "wuxiaoran",
   "trust_level": "full",
@@ -132,7 +132,7 @@ http://master-server:8888/api
   "connection_id": "aliyun-node3",
   "message": "连接已配置",
   "tunnel_config": {
-    "command": "ssh -R 2223:10.16.82.202:5122 -N root@8.131.61.234",
+    "command": "ssh -R 2223:YOUR_TARGET_IP:22 -N root@YOUR_JUMP_SERVER_IP",
     "local_port": 2223
   }
 }
