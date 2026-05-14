@@ -1,65 +1,76 @@
 # Tunnel Mesh
 
-服务器网络拓扑管理工具，支持反向隧道、多平台服务、密钥管理。
+> 简单易用的反向隧道管理工具，让内网服务器连接变得简单。
 
-## 功能
+## 特点
 
-- **跳板服务器端口管理**：自动分配和管理反向隧道端口
-- **Linux 隧道服务**：autossh + systemd 自动保活
-- **Windows 隧道服务**：ssh.exe + Windows Service
-- **密钥管理**：SSH 密钥生成、部署、配置
-- **交互式终端**：增删改查隧道配置
+- **小白友好**：复制粘贴即可完成配置
+- **双平台支持**：Windows 图形化菜单 + Linux 一键脚本
+- **批量管理**：一次管理多个隧道
+- **自动重连**：断线自动重连
+- **开机自启**：重启后自动恢复连接
 
 ## 快速开始
 
-### 交互式管理（推荐）
+### 场景：从家里连接公司内网服务器
+
+#### 第 1 步：在公司服务器上运行
 
 ```bash
-python3 scripts/tunnel-manager-interactive.py
+curl -sSL https://raw.githubusercontent.com/wilianyichen/tunnel-mesh/main/linux-export-config.sh | bash
 ```
 
-### 命令行方式
+#### 第 2 步：复制输出的配置文本
 
-```bash
-# 1. 初始化跳板服务器
-python3 scripts/jump-server-manager.py init --host aliyun --ip YOUR_JUMP_SERVER_IP
+#### 第 3 步：在 Windows 上粘贴
 
-# 2. 分配端口
-python3 scripts/jump-server-manager.py allocate --target node3 --ip YOUR_TARGET_IP
+1. 双击 **Tunnel Mesh** 图标
+2. 选择 **[5] 导入配置**
+3. 粘贴配置文本
+4. 选择 **[3] 启动所有隧道**
 
-# 3. 生成密钥
-python3 scripts/key-manager.py generate --name tunnel-node3
+**完成！**
 
-# 4. 安装隧道服务
-python3 scripts/linux-tunnel-service.py install --target node3
-```
+## 安装
+
+### Windows
+
+1. 下载 `windows-install.bat`
+2. 右键 → 以管理员身份运行
+
+### Linux
+
+无需安装，直接运行脚本。
+
+## 文档
+
+- [使用教程（小白友好版）](docs/TUTORIAL.md)
+- [Windows 批量管理指南](docs/windows-batch-guide.md)
+- [完整配置指南](docs/windows-tunnel-guide.md)
 
 ## 目录结构
 
 ```
 tunnel-mesh/
+├── windows-install.bat          # Windows 一键安装
+├── windows-menu.bat             # Windows 图形化菜单
+├── linux-export-config.sh       # Linux 配置导出
 ├── scripts/
-│   ├── jump-server-manager.py      # 跳板端口管理
-│   ├── linux-tunnel-service.py     # Linux 隧道服务
-│   ├── windows-tunnel-service.py   # Windows 隧道服务
-│   ├── key-manager.py              # 密钥管理
-│   ├── tunnel-manager-interactive.py # 交互式终端
-│   └── topology-manager.py         # 拓扑管理
-├── templates/
-│   ├── systemd/                    # systemd 服务模板
-│   └── windows/                    # Windows 服务模板
-└── docs/
-    ├── topology-spec.md            # 拓扑规范
-    ├── connection-matrix.md        # 连接矩阵设计
-    └── trust-levels.md             # 信任等级定义
+│   ├── windows-tunnel-batch.py  # Windows 批量管理
+│   ├── parse-config.py          # 配置解析
+│   └── ...
+├── docs/
+│   ├── TUTORIAL.md              # 小白教程
+│   └── ...
+└── SKILL.md                     # Agent 文档
 ```
 
 ## 平台支持
 
-| 平台 | 隧道命令 | 保活方式 | 自启动 |
-|------|----------|----------|--------|
-| Linux | autossh | systemd | systemctl enable |
-| Windows | ssh.exe | Windows Service | sc create |
+| 平台 | 功能 | 方式 |
+|------|------|------|
+| Windows | 隧道管理 | 图形化菜单 |
+| Linux | 配置导出 | 一键脚本 |
 
 ## 许可证
 
