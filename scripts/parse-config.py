@@ -37,7 +37,7 @@ def main():
     config = parse_config(config_text)
     
     # 验证必要字段
-    required = ['SERVER_NAME', 'SERVER_IP', 'SERVER_PORT', 'JUMP_IP']
+    required = ['SERVER_NAME', 'SERVER_IP', 'SERVER_PORT', 'RELAY_IP']
     for field in required:
         if field not in config:
             print(f"[错误] 缺少字段: {field}")
@@ -53,16 +53,15 @@ def main():
         with open(config_file, encoding='utf-8') as f:
             tunnels_config = json.load(f)
     else:
-        tunnels_config = {"jump": {}, "tunnels": {}}
+        tunnels_config = {"relay": {}, "tunnels": {}}
     
-    # 更新跳板配置
-    if 'JUMP_IP' in config:
-        tunnels_config["jump"] = {
-            "name": config.get('JUMP_NAME', 'jump'),
-            "ip": config['JUMP_IP'],
-            "port": int(config.get('JUMP_PORT', 22)),
-            "user": config.get('JUMP_USER', 'root')
-        }
+    # 更新中转服务器配置
+    tunnels_config["relay"] = {
+        "name": config.get('RELAY_NAME', 'aliyun'),
+        "ip": config['RELAY_IP'],
+        "port": int(config.get('RELAY_PORT', 22)),
+        "user": config.get('RELAY_USER', 'root')
+    }
     
     # 添加隧道
     server_name = config['SERVER_NAME']

@@ -31,10 +31,10 @@ bash linux-export-config.sh
 SERVER_NAME=node3
 SERVER_IP=192.168.1.100
 SERVER_PORT=22
-JUMP_NAME=aliyun
-JUMP_IP=YOUR_PUBLIC_IP
-JUMP_PORT=22
-JUMP_USER=root
+RELAY_NAME=aliyun
+RELAY_IP=YOUR_PUBLIC_IP
+RELAY_PORT=22
+RELAY_USER=root
 PUB_KEY=ssh-ed25519 AAAA...
 ===TUNNEL_CONFIG_END===
 ```
@@ -73,8 +73,8 @@ PUB_KEY=ssh-ed25519 AAAA...
 ### Q: 连接不上怎么办？
 
 检查以下几点：
-1. 跳板服务器的 SSH 是否开放
-2. 跳板服务器的防火墙是否放行
+1. 中转服务器的 SSH 是否开放
+2. 中转服务器的防火墙是否放行
 3. 密钥是否正确
 
 ### Q: 如何查看连接状态？

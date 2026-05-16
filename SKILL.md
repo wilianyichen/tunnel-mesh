@@ -34,7 +34,7 @@ bash linux-export-config.sh
 
 输出固定格式的配置文本，包含：
 - 服务器名称、IP、端口
-- 跳板服务器信息
+- 中转服务器信息
 - SSH 公钥
 
 ### 2. 配置导入（Windows 端）
@@ -86,7 +86,7 @@ windows-menu.bat → [4]
 │                                                             │
 │                         ↓ 完成                              │
 │                                                             │
-│  连接命令: ssh -p 2201 user@跳板IP                          │
+│  连接命令: ssh -p 2201 user@中转IP                          │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -112,10 +112,10 @@ windows-menu.bat → [4]
 SERVER_NAME=node3
 SERVER_IP=192.168.1.100
 SERVER_PORT=22
-JUMP_NAME=aliyun
-JUMP_IP=1.2.3.4
-JUMP_PORT=22
-JUMP_USER=root
+RELAY_NAME=aliyun
+RELAY_IP=1.2.3.4
+RELAY_PORT=22
+RELAY_USER=root
 PUB_KEY=ssh-ed25519 AAAA...
 ===TUNNEL_CONFIG_END===
 ```
@@ -133,7 +133,7 @@ PUB_KEY=ssh-ed25519 AAAA...
 ### 问题 2：SSH 连接失败
 
 **检查**：
-1. 跳板服务器 SSH 是否开放
+1. 中转服务器 SSH 是否开放
 2. 防火墙是否放行
 3. 密钥是否正确
 
@@ -182,7 +182,7 @@ windows-install.bat
 windows-menu.bat
 
 # 命令行方式
-python tunnel-batch.py init --jump aliyun --ip 1.2.3.4
+python tunnel-batch.py init --relay aliyun --ip 1.2.3.4
 python tunnel-batch.py add --name node3 --target 192.168.1.100:22
 python tunnel-batch.py install-all
 python tunnel-batch.py start-all

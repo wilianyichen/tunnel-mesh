@@ -24,18 +24,19 @@ elif [ -f ~/.ssh/id_ed25519.pub ]; then
     PUB_KEY=$(cat ~/.ssh/id_ed25519.pub)
 fi
 
-# 获取跳板服务器信息
-echo "请输入跳板服务器信息："
+# 获取中转服务器信息（有公网IP的服务器）
+echo "请输入中转服务器信息（就是那台有公网IP的服务器）："
+echo "  （例如：你的阿里云服务器）"
 echo ""
-read -p "跳板名称 [aliyun]: " JUMP_NAME
-JUMP_NAME=${JUMP_NAME:-aliyun}
+read -p "中转服务器名称 [aliyun]: " RELAY_NAME
+RELAY_NAME=${RELAY_NAME:-aliyun}
 
-read -p "跳板公网IP: " JUMP_IP
-read -p "跳板SSH端口 [22]: " JUMP_PORT
-JUMP_PORT=${JUMP_PORT:-22}
+read -p "中转服务器公网IP: " RELAY_IP
+read -p "中转服务器SSH端口 [22]: " RELAY_PORT
+RELAY_PORT=${RELAY_PORT:-22}
 
-read -p "跳板用户 [root]: " JUMP_USER
-JUMP_USER=${JUMP_USER:-root}
+read -p "中转服务器用户 [root]: " RELAY_USER
+RELAY_USER=${RELAY_USER:-root}
 
 echo ""
 echo "────────────────────────────────────────"
@@ -46,10 +47,10 @@ echo "===TUNNEL_CONFIG_START==="
 echo "SERVER_NAME=$SERVER_NAME"
 echo "SERVER_IP=$SERVER_IP"
 echo "SERVER_PORT=$SSH_PORT"
-echo "JUMP_NAME=$JUMP_NAME"
-echo "JUMP_IP=$JUMP_IP"
-echo "JUMP_PORT=$JUMP_PORT"
-echo "JUMP_USER=$JUMP_USER"
+echo "RELAY_NAME=$RELAY_NAME"
+echo "RELAY_IP=$RELAY_IP"
+echo "RELAY_PORT=$RELAY_PORT"
+echo "RELAY_USER=$RELAY_USER"
 echo "PUB_KEY=$PUB_KEY"
 echo "===TUNNEL_CONFIG_END==="
 echo ""
