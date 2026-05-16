@@ -1,114 +1,57 @@
 ---
 name: tunnel-mesh
 title: Tunnel Mesh - 反向隧道管理系统
-description: 管理服务器网络拓扑和反向隧道，支持 Windows/Linux 双平台，一键配置，小白友好。
+description: 让服务器连接变得简单。支持平等契约（双向直连）和主仆契约（单向中转），Windows/Linux 双平台。
 author: Hermes
-version: 1.0.0
+version: 2.0.0
 triggers:
+  - 连接服务器
+  - SSH
   - 反向隧道
-  - SSH 隧道
   - 内网穿透
-  - 隧道管理
-  - tunnel mesh
+  - 契约
 ---
 
 # Tunnel Mesh
 
-## 目标
+## 核心概念
 
-帮助用户建立服务器之间的反向隧道连接，支持：
-- Windows 批量管理隧道服务
-- Linux 一键导出配置
-- 小白友好的图形化菜单
+### 契约类型
+
+| 契约 | 方向 | 条件 | 操作 |
+|------|------|------|------|
+| 平等契约 | 双向 | 网络互通 | 双方交换契约文书 |
+| 主仆契约 | 单向 | 需中转服务器 | 仆端生成，主端导入 |
+
+### 契约之塔（中转服务器）
+
+有公网IP的服务器，双方都能SSH连上它。通常是阿里云/腾讯云等 VPS。
 
 ---
 
-## 核心功能
+## 工作流程
 
-### 1. 配置导出（Linux 端）
+### 平等契约
 
-```bash
-# 在被连接服务器上运行
-bash linux-export-config.sh
+```
+双方各自运行导出脚本 → 交换契约文书 → 互相导入 → 完成
 ```
 
-输出固定格式的配置文本，包含：
-- 服务器名称、IP、端口
-- 中转服务器信息
-- SSH 公钥
+### 主仆契约
 
-### 2. 配置导入（Windows 端）
-
-```batch
-# 在 Windows 上运行
-windows-menu.bat
-# 选择 [5] 导入配置
-# 粘贴配置文本
 ```
-
-自动解析并创建隧道。
-
-### 3. 批量管理
-
-```batch
-# 查看状态
-windows-menu.bat → [1]
-
-# 启动所有隧道
-windows-menu.bat → [3]
-
-# 停止所有隧道
-windows-menu.bat → [4]
+仆端运行 linux-export-config.sh → 生成契约文书
+主端运行 windows-menu.bat → [1]缔结新契约 → 粘贴
+→ [3]契约之仪 → 完成
 ```
 
 ---
 
-## 使用流程
+## 文本格式
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    完整使用流程                              │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Linux 服务器（被连接端）                                    │
-│  ─────────────────────                                      │
-│  1. 运行 linux-export-config.sh                             │
-│  2. 复制输出的配置文本                                       │
-│                                                             │
-│                         ↓ 复制                              │
-│                                                             │
-│  Windows 电脑（连接端）                                      │
-│  ─────────────────────                                      │
-│  1. 双击 Tunnel Mesh 图标                                   │
-│  2. 选择 [5] 导入配置                                       │
-│  3. 粘贴配置文本                                            │
-│  4. 选择 [3] 启动所有隧道                                   │
-│                                                             │
-│                         ↓ 完成                              │
-│                                                             │
-│  连接命令: ssh -p 2201 user@中转IP                          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 文件说明
-
-| 文件 | 用途 | 平台 |
-|------|------|------|
-| `windows-install.bat` | 一键安装 | Windows |
-| `windows-menu.bat` | 图形化菜单 | Windows |
-| `linux-export-config.sh` | 配置导出 | Linux |
-| `scripts/parse-config.py` | 配置解析 | Windows |
-| `scripts/windows-tunnel-batch.py` | 批量管理 | Windows |
-
----
-
-## 配置文本格式
-
-```
-===TUNNEL_CONFIG_START===
+===CONTRACT_START===
+CONTRACT_TYPE=2
 SERVER_NAME=node3
 SERVER_IP=192.168.1.100
 SERVER_PORT=22
@@ -117,84 +60,31 @@ RELAY_IP=1.2.3.4
 RELAY_PORT=22
 RELAY_USER=root
 PUB_KEY=ssh-ed25519 AAAA...
-===TUNNEL_CONFIG_END===
+===CONTRACT_END===
 ```
 
 ---
 
-## 常见问题处理
+## 字段说明
 
-### 问题 1：Windows 编码错误
-
-**原因**：Windows 默认使用 GBK 编码
-
-**解决**：所有 .bat 文件开头添加 `chcp 65001 >nul`
-
-### 问题 2：SSH 连接失败
-
-**检查**：
-1. 中转服务器 SSH 是否开放
-2. 防火墙是否放行
-3. 密钥是否正确
-
-### 问题 3：服务无法启动
-
-**解决**：
-```batch
-# 检查服务状态
-sc query Tunnel-node3
-
-# 手动启动
-net start Tunnel-node3
-```
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| CONTRACT_TYPE | 1=平等 2=主仆 | 2 |
+| SERVER_NAME | 对方服务器名字 | node3 |
+| SERVER_IP | 对方IP | 192.168.1.100 |
+| SERVER_PORT | 对方SSH端口 | 22 |
+| RELAY_IP | 中转服务器公网IP | 1.2.3.4 |
+| PUB_KEY | SSH公钥 | ssh-ed25519 AAAA... |
 
 ---
 
-## 端口分配规则
+## 文件清单
 
-默认范围：2201-2299
-
-按添加顺序自动分配：
-- 第 1 个隧道：2201
-- 第 2 个隧道：2202
-- ...
-
----
-
-## 安全注意事项
-
-1. **不要在代码中硬编码敏感信息**
-2. **配置文本中不要包含真实 IP**
-3. **使用模板变量**：`YOUR_SERVER_IP`、`YOUR_API_KEY`
-4. **推送前检查**：`grep -rE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"`
-
----
-
-## 命令速查
-
-### Windows
-
-```batch
-# 安装
-windows-install.bat
-
-# 打开菜单
-windows-menu.bat
-
-# 命令行方式
-python tunnel-batch.py init --relay aliyun --ip 1.2.3.4
-python tunnel-batch.py add --name node3 --target 192.168.1.100:22
-python tunnel-batch.py install-all
-python tunnel-batch.py start-all
-python tunnel-batch.py status
-```
-
-### Linux
-
-```bash
-# 导出配置
-bash linux-export-config.sh
-
-# 一键运行
-curl -sSL URL | bash
-```
+| 文件 | 平台 | 用途 |
+|------|------|------|
+| `linux-export-config.sh` | Linux | 契约文书生成 |
+| `windows-export-config.bat` | Windows | 契约文书生成 |
+| `windows-menu.bat` | Windows | 契约大厅（管理界面） |
+| `windows-install.bat` | Windows | 一键安装 |
+| `scripts/parse-contract.py` | Windows | 契约解析 |
+| `scripts/windows-tunnel-batch.py` | Windows | 批量隧道管理 |
