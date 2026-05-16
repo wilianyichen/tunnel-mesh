@@ -39,18 +39,18 @@ CONFIG = {
     
     # 隧道配置
     "tunnels": {
-        # 反向隧道: 阿里云:2224 → node3:22
+        # 反向隧道: 阿里云:YOUR_TUNNEL_PORT → node3:22
         # 用于阿里云访问 node3
         "reverse": {
-            "remote_port": 2224,  # 阿里云上的端口
+            "remote_port": YOUR_TUNNEL_PORT,  # 阿里云上的端口
             "target_host": "YOUR_TARGET_IP",
             "target_port": 5122,
         },
         
-        # 正向隧道: node3:2223 → 阿里云:22
+        # 正向隧道: node3:YOUR_TUNNEL_PORT2 → 阿里云:22
         # 用于 node3 访问阿里云（备用，node3 可直连）
         "forward": {
-            "local_port": 2223,  # node3 上的端口
+            "local_port": YOUR_TUNNEL_PORT2,  # node3 上的端口
             "target_host": "YOUR_JUMP_SERVER_IP",
             "target_port": 22,
         },

@@ -20,7 +20,7 @@ usage() {
     echo ""
     echo "示例:"
     echo "  $0 init"
-    echo "  $0 add --alias node3 --ip 10.16.82.202 --port 5122"
+    echo "  $0 add --alias node3 --ip YOUR_TARGET_IP --port 5122"
     echo "  $0 connect node3"
 }
 
