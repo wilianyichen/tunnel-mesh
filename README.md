@@ -1,44 +1,57 @@
 # Tunnel Mesh
 
-> 让服务器连接变得简单。跟着提示操作，不需要懂技术。
+> 通用服务器连接工具，Linux / Windows 双平台
 
-## 安装
+## 核心概念
 
-**Windows**：以管理员身份运行 PowerShell，执行：
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File windows-auto-setup.ps1
+```
+每台服务器运行一次导出 → 生成「契约文书」→ 复制到对方 → 粘贴完成
 ```
 
-**Linux**：导出自己的信息给对方：
+不需要懂 SSH、隧道、端口。跟着脚本提示选就行。
+
+---
+
+## 快速开始
+
+### Linux 上：
 
 ```bash
-bash linux-export-contract.sh
+# 导出模式 - 生成我的身份信息给对方
+bash linux-contract.sh export
+
+# 导入模式 - 粘贴对方给我的契约文书
+bash linux-contract.sh import
+```
+
+### Windows 上：
+
+```
+双击 windows-contract.bat → [1]导入契约 → 粘贴契约文书
 ```
 
 ---
 
-## 使用场景
+## 完整教程
 
-| 场景 | 教程 |
+| 场景 | 文档 |
 |------|------|
-| **我的三台服务器怎么配？** | [小白完整指南](docs/SETUP-BEGINNER.md) |
-| **三服务器详细配置** | [完整配置指南](docs/SETUP-3SERVERS.md) |
-| **日常管理** | [操作流程](docs/OPERATION.md) |
-| **Linux 教程** | [Linux 使用教程](docs/TUTORIAL-LINUX.md) |
-| **Windows 教程** | [Windows 使用教程](docs/TUTORIAL-WINDOWS.md) |
+| **三服务器双向连接（阿里云↔node3）** | [SETUP-BEGINNER.md](docs/SETUP-BEGINNER.md) |
+| **三服务器详细配置指南** | [SETUP-3SERVERS.md](docs/SETUP-3SERVERS.md) |
+| **Linux 详细教程** | [TUTORIAL-LINUX.md](docs/TUTORIAL-LINUX.md) |
+| **Windows 详细教程** | [TUTORIAL-WINDOWS.md](docs/TUTORIAL-WINDOWS.md) |
 
 ---
 
 ## 项目文件
 
-| 文件 | 给谁用 | 作用 |
-|------|--------|------|
-| `windows-auto-setup.ps1` | Windows 用户 | 一键安装向导 |
-| `windows-contract-hall.bat` | Windows 用户 | 契约大厅（管理所有隧道） |
-| `linux-export-contract.sh` | Linux 用户 | 导出信息给对端 |
-| `linux-setup-ssh-config.sh` | Linux 用户 | 导入对端配置 |
-| `docs/SETUP-BEGINNER.md` | 小白 | 三服务器完整指南 |
+| 文件 | 平台 | 作用 |
+|------|------|------|
+| `linux-contract.sh` | Linux | **通用脚本**（导出+导入） |
+| `windows-contract.bat` | Windows | **通用脚本**（导入+管理） |
+| `linux-export-contract.sh` | Linux | 导出+自动检测 |
+| `linux-setup-ssh-config.sh` | Linux | SSH config 配置 |
+| `windows-auto-setup.ps1` | Windows | 一键安装向导 |
 
 ---
 
