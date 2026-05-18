@@ -1,64 +1,47 @@
 # Tunnel Mesh
 
-> SSH 连接管理工具，Linux / Windows 双平台，选菜单即用。
-
-## 核心概念
-
-```
-主仆关系 ─ 主发起控制，仆被控制
-触达方式 ─ 正向（直连）或 反向（需隧道）
-传递控制 ─ 通过已有仆人连接更深层的服务器
-```
+> 让服务器连接变得简单。跟着提示操作，不需要懂技术。
 
 ## 安装
 
-**Linux**：
+**Windows**：以管理员身份运行 PowerShell，执行：
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File windows-auto-setup.ps1
+```
+
+**Linux**：导出自己的信息给对方：
+
 ```bash
-curl -sSL https://raw.githubusercontent.com/wilianyichen/tunnel-mesh/main/linux-install.sh | bash
+bash linux-export-contract.sh
 ```
 
-**Windows**：下载 `windows-install.bat`，右键 → 以管理员身份运行。
+---
 
-## 使用教程
+## 使用场景
 
-| 平台 | 教程 |
+| 场景 | 教程 |
 |------|------|
-| Linux | [Linux 使用教程](docs/TUTORIAL-LINUX.md) |
-| Windows | [Windows 使用教程](docs/TUTORIAL-WINDOWS.md) |
-| 总览 | [快速开始](docs/TUTORIAL.md) |
+| **我的三台服务器怎么配？** | [小白完整指南](docs/SETUP-BEGINNER.md) |
+| **三服务器详细配置** | [完整配置指南](docs/SETUP-3SERVERS.md) |
+| **日常管理** | [操作流程](docs/OPERATION.md) |
+| **Linux 教程** | [Linux 使用教程](docs/TUTORIAL-LINUX.md) |
+| **Windows 教程** | [Windows 使用教程](docs/TUTORIAL-WINDOWS.md) |
 
-## 功能
+---
 
-- 缔结契约 - 建立主仆关系（正向直连 / 反向隧道 / 多级跳转）
-- 审视契约 - 列出所有仆及连接状态
-- 追寻仆人 - 自动发现多级仆人（传递控制）
-- 连接仆人 - 一键连接，自动选最优路径
-- 契约之仪 - 启动所有反向隧道（开机自启）
-- 断契 - 删除契约（停隧道 + 删配置 + 可选删密钥）
-- 密钥保管 - 独立管理每对关系的 SSH 密钥
+## 项目文件
 
-## 文件说明
+| 文件 | 给谁用 | 作用 |
+|------|--------|------|
+| `windows-auto-setup.ps1` | Windows 用户 | 一键安装向导 |
+| `windows-contract-hall.bat` | Windows 用户 | 契约大厅（管理所有隧道） |
+| `linux-export-contract.sh` | Linux 用户 | 导出信息给对端 |
+| `linux-setup-ssh-config.sh` | Linux 用户 | 导入对端配置 |
+| `docs/SETUP-BEGINNER.md` | 小白 | 三服务器完整指南 |
 
-```
-tunnel-mesh/
-├── README.md                         # 项目说明
-├── DESIGN.md                         # 设计规范
-├── SKILL.md                          # Agent 文档
-├── linux-install.sh                  # Linux 安装
-├── linux-export-config.sh            # Linux 契约大厅
-├── windows-install.bat               # Windows 安装
-├── windows-contract-hall.bat         # Windows 契约大厅
-├── windows-export-config.bat         # Windows 导出文书
-├── docs/
-│   ├── TUTORIAL.md                   # 总览
-│   ├── TUTORIAL-LINUX.md             # Linux 教程
-│   └── TUTORIAL-WINDOWS.md           # Windows 教程
-└── scripts/
-    ├── parse-contract.py             # 契约解析
-    ├── key-manager.py                # 密钥管理
-    └── windows-tunnel-batch.py       # 批量隧道管理
-```
+---
 
 ## 许可证
 
-MIT License
+MIT
