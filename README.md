@@ -1,76 +1,63 @@
 # Tunnel Mesh
 
-> 简单易用的反向隧道管理工具，让内网服务器连接变得简单。
+> SSH 连接管理工具，Linux / Windows 双平台，选菜单即用。
 
-## 特点
+## 核心概念
 
-- **小白友好**：复制粘贴即可完成配置
-- **双平台支持**：Windows 图形化菜单 + Linux 一键脚本
-- **批量管理**：一次管理多个隧道
-- **自动重连**：断线自动重连
-- **开机自启**：重启后自动恢复连接
-
-## 快速开始
-
-### 场景：从家里连接公司内网服务器
-
-#### 第 1 步：在公司服务器上运行
-
-```bash
-curl -sSL https://raw.githubusercontent.com/wilianyichen/tunnel-mesh/main/linux-export-config.sh | bash
 ```
-
-#### 第 2 步：复制输出的配置文本
-
-#### 第 3 步：在 Windows 上粘贴
-
-1. 双击 **Tunnel Mesh** 图标
-2. 选择 **[5] 导入配置**
-3. 粘贴配置文本
-4. 选择 **[3] 启动所有隧道**
-
-**完成！**
+主仆关系 ─ 主发起控制，仆被控制
+触达方式 ─ 正向（直连）或 反向（需隧道）
+传递控制 ─ 通过已有仆人连接更深层的服务器
+```
 
 ## 安装
 
-### Windows
+**Linux**：
+```bash
+curl -sSL https://raw.githubusercontent.com/wilianyichen/tunnel-mesh/main/linux-install.sh | bash
+```
 
-1. 下载 `windows-install.bat`
-2. 右键 → 以管理员身份运行
+**Windows**：下载 `windows-install.bat`，右键 → 以管理员身份运行。
 
-### Linux
+## 使用教程
 
-无需安装，直接运行脚本。
+| 平台 | 教程 |
+|------|------|
+| Linux | [Linux 使用教程](docs/TUTORIAL-LINUX.md) |
+| Windows | [Windows 使用教程](docs/TUTORIAL-WINDOWS.md) |
+| 总览 | [快速开始](docs/TUTORIAL.md) |
 
-## 文档
+## 功能
 
-- [使用教程（小白友好版）](docs/TUTORIAL.md)
-- [Windows 批量管理指南](docs/windows-batch-guide.md)
-- [完整配置指南](docs/windows-tunnel-guide.md)
+- 缔结契约 - 建立主仆关系（正向直连 / 反向隧道 / 多级跳转）
+- 审视契约 - 列出所有仆及连接状态
+- 追寻仆人 - 自动发现多级仆人（传递控制）
+- 连接仆人 - 一键连接，自动选最优路径
+- 契约之仪 - 启动所有反向隧道（开机自启）
+- 断契 - 删除契约（停隧道 + 删配置 + 可选删密钥）
+- 密钥保管 - 独立管理每对关系的 SSH 密钥
 
-## 目录结构
+## 文件说明
 
 ```
 tunnel-mesh/
-├── windows-install.bat          # Windows 一键安装
-├── windows-menu.bat             # Windows 图形化菜单
-├── linux-export-config.sh       # Linux 配置导出
-├── scripts/
-│   ├── windows-tunnel-batch.py  # Windows 批量管理
-│   ├── parse-config.py          # 配置解析
-│   └── ...
+├── README.md                         # 项目说明
+├── DESIGN.md                         # 设计规范
+├── SKILL.md                          # Agent 文档
+├── linux-install.sh                  # Linux 安装
+├── linux-export-config.sh            # Linux 契约大厅
+├── windows-install.bat               # Windows 安装
+├── windows-contract-hall.bat         # Windows 契约大厅
+├── windows-export-config.bat         # Windows 导出文书
 ├── docs/
-│   ├── TUTORIAL.md              # 小白教程
-│   └── ...
-└── SKILL.md                     # Agent 文档
+│   ├── TUTORIAL.md                   # 总览
+│   ├── TUTORIAL-LINUX.md             # Linux 教程
+│   └── TUTORIAL-WINDOWS.md           # Windows 教程
+└── scripts/
+    ├── parse-contract.py             # 契约解析
+    ├── key-manager.py                # 密钥管理
+    └── windows-tunnel-batch.py       # 批量隧道管理
 ```
-
-## 平台支持
-
-| 平台 | 功能 | 方式 |
-|------|------|------|
-| Windows | 隧道管理 | 图形化菜单 |
-| Linux | 配置导出 | 一键脚本 |
 
 ## 许可证
 
