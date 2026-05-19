@@ -29,6 +29,8 @@ detect_identity() {
 do_export() {
     detect_identity
 
+    FINGERPRINT=$(echo "$MY_PUBKEY" | ssh-keygen -lf - 2>/dev/null | awk '{print $2}')
+
     echo ""
     echo "╔════════════════════════════════════════╗"
     echo "║  本服务器身份（自动检测）               ║"
@@ -37,8 +39,11 @@ do_export() {
     echo "║  IP     : $MY_IP"
     echo "║  SSH端口: $MY_PORT"
     echo "║  用户名 : $MY_USER"
+    if [ -n "$FINGERPRINT" ]; then
+        echo "║  公钥指纹: $FINGERPRINT"
+    fi
+    echo "║  公钥    : [已检测到，会包含在输出的契约文书里]"
     echo "╚════════════════════════════════════════╝"
-    echo ""
 
     # ── 触达方式 ──
     echo "对方能直接连到你吗？"
@@ -101,9 +106,10 @@ do_export() {
     else
         # 别人(Bridge)替我维持
         echo ""
-        echo "维持者（Bridge）需要连接到哪台服务器来建立隧道？"
-        echo "  维持者会用 ssh -R 连到一台服务器，在那台上开一个端口。"
-        echo "  这台被连的服务器就是「隧道接收端」。"
+        echo "维持者（Windows）需要连接到哪台服务器来建立隧道？"
+        echo "  维持者会执行: ssh -R <端口>:你:${MY_PORT} <这台服务器>"
+        echo "  这台服务器就是「隧道接收端」。"
+        echo "  （比如阿里云的公网IP，Windows 连到它去开隧道端口）"
         echo ""
         read -p "隧道接收端 IP（Windows 要连的那台服务器）: " REMOTE_IP
         read -p "隧道接收端 SSH端口 [22]: " REMOTE_PORT
