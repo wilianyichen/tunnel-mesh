@@ -59,7 +59,33 @@ if !errorlevel! neq 0 (
     goto menu
 )
 
-REM 从命令中提取隧道名称（用目标 IP:port 做名字）
+REM ── 密钥检查 ──
+echo.
+echo 检查 SSH 密钥...
+set KEY_FILE=%USERPROFILE%\.ssh\id_ed25519
+if not exist "%KEY_FILE%" (
+    echo 未找到密钥，正在生成...
+    ssh-keygen -t ed25519 -f "%KEY_FILE%" -N "" -C "windows@tunnel"
+    echo √ 密钥已生成
+)
+
+REM 提取隧道目标（用户名@服务器）用于提示部署公钥
+for /f "tokens=5 delims= " %%a in ("!TCMD!") do set TUNNEL_DEST=%%a
+
+echo.
+echo ──────────────────────────────────────
+echo   需要将此公钥部署到目标服务器上：
+echo ──────────────────────────────────────
+type "%USERPROFILE%\.ssh\id_ed25519.pub"
+echo ──────────────────────────────────────
+echo.
+echo 部署命令（在目标服务器上运行）：
+echo   echo '上面的公钥' ^>^> ~/.ssh/authorized_keys
+echo.
+echo 如果已部署过，按回车继续...
+pause
+
+REM 从命令中提取隧道名称
 for /f "tokens=3 delims=: " %%a in ("!TCMD!") do set TARGET=%%a
 if "%TARGET%"=="" set TARGET=tunnel
 
