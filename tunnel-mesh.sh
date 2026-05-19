@@ -52,6 +52,10 @@ port_allocate() {
 detect_identity() {
     HOSTNAME=$(hostname)
     IP=$(hostname -I | awk '{print $1}')
+    # 阿里云等云服务器：公网IP不在网卡上，curl 获取
+    PUBLIC_IP=$(timeout 3 curl -s ifconfig.me 2>/dev/null || timeout 3 curl -s icanhazip.com 2>/dev/null || echo "")
+    TUNNEL_IP="$IP"
+    [ -n "$PUBLIC_IP" ] && TUNNEL_IP="$PUBLIC_IP"
     PORT=$(grep "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
     [ -z "$PORT" ] && PORT=22
     USER=$(whoami)
@@ -102,9 +106,18 @@ print(json.dumps(d,indent=2))
     echo "╔════════════════════════════════════════╗"
     echo "║  身份已保存                             ║"
     echo "╠════════════════════════════════════════╣"
-    echo "║  $HOSTNAME ($IP:$PORT)"
-    [ -n "$FINGERPRINT" ] && echo "║  指纹: $FINGERPRINT"
+    echo "║  主机名 : $HOSTNAME"
+    echo "║  内网IP : $IP"
+    [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$IP" ] && echo "║  公网IP : $PUBLIC_IP"
+    echo "║  SSH端口: $PORT"
+    echo "║  用户   : $USER"
+    [ -n "$FINGERPRINT" ] && echo "║  公钥指纹: $FINGERPRINT"
     echo "╚════════════════════════════════════════╝"
+
+    # 确定用于隧道命令的IP（公网优先）
+    TUNNEL_IP="$IP"
+    [ -n "$PUBLIC_IP" ] && TUNNEL_IP="$PUBLIC_IP"
+    [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$IP" ] && echo "" && echo "  检测到公网IP: $PUBLIC_IP（隧道命令将使用此IP）"
     echo ""
     echo "════════════════════════════════════════"
     echo "  身份卡（复制给对方）"
@@ -113,6 +126,7 @@ print(json.dumps(d,indent=2))
     echo "===IDENTITY==="
     echo "NAME=$HOSTNAME"
     echo "IP=$IP"
+    [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$IP" ] && echo "PUBLIC_IP=$PUBLIC_IP"
     echo "PORT=$PORT"
     echo "USER=$USER"
     echo "PUBKEY=$PUBKEY"
@@ -276,7 +290,7 @@ print(json.dumps(d,indent=2))
             echo "维持命令: $TUNNEL_CMD"
             echo "对方访问: ssh -p $TUNNEL_PORT $USER@$IP"
         else
-            TUNNEL_CMD="ssh -R ${TUNNEL_PORT}:${PEER_IP}:${PEER_PORT} ${USER}@${IP} -p ${PORT}"
+            TUNNEL_CMD="ssh -R ${TUNNEL_PORT}:${PEER_IP}:${PEER_PORT} ${USER}@${TUNNEL_IP} -p ${PORT}"
 
             # 本机 SSH config
             mkdir -p ~/.ssh
