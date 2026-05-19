@@ -79,15 +79,31 @@ $ bash tunnel-mesh-wizard.sh
 
 ## Task 3：端口管理
 
-**当前问题**：每次从 2201 开始分配，不知道哪些已用。
+**当前问题**：每次从 2201 开始分配，只知道 SSH config 里的端口，不知道工具自身和系统占用的端口。
 
-**方案**：
-- 读取 `config.json` 中 `ports.used`
-- 如果有跨脚本冲突（比如其他工具占用了 2201），导入时检测：
-  ```bash
-  ss -tlnp | grep ":2201 "  # 检查端口是否被占用
-  ```
-- 冲突时自动跳过
+**三层检查**：
+
+```bash
+port_is_free() {
+    PORT=$1
+    
+    # 1. 工具自身配置 ~/.tunnel-mesh/config.json
+    grep -q "\"$PORT\"" ~/.tunnel-mesh/config.json 2>/dev/null && return 1
+    
+    # 2. SSH config 中已用的端口
+    grep "Port $PORT" ~/.ssh/config 2>/dev/null && return 1
+    
+    # 3. 系统已监听的端口
+    ss -tlnp 2>/dev/null | grep -q ":$PORT " && return 1
+    
+    return 0
+}
+```
+
+**冲突处理**：
+- 自动跳过已用端口，找下一个
+- 显示「端口 2201 已被占用，使用 2202」
+- 所有端口被占满时提示用户手动指定
 
 ---
 
