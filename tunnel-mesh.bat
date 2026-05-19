@@ -14,11 +14,12 @@ echo ║     Tunnel Mesh  契约大厅 (Windows)    ║
 echo ╠════════════════════════════════════════╣
 echo ║                                        ║
 echo ║  [1] 导入隧道命令 (粘贴 ssh -R ... )   ║
-echo ║  [2] 查看隧道状态                      ║
-echo ║  [3] 启动所有隧道                      ║
-echo ║  [4] 停止所有隧道                      ║
-echo ║  [5] 删除隧道                          ║
-echo ║  [6] 测试连接                          ║
+echo ║  [2] 导出身份卡（给 Linux 用）          ║
+echo ║  [3] 查看隧道状态                      ║
+echo ║  [4] 启动所有隧道                      ║
+echo ║  [5] 停止所有隧道                      ║
+echo ║  [6] 删除隧道                          ║
+echo ║  [7] 测试连接                          ║
 echo ║  [Q] 退出                              ║
 echo ║                                        ║
 echo ╚════════════════════════════════════════╝
@@ -26,13 +27,60 @@ echo.
 
 set /p choice="选择: "
 if /i "%choice%"=="1" goto import
-if /i "%choice%"=="2" goto status
-if /i "%choice%"=="3" goto start
-if /i "%choice%"=="4" goto stop
-if /i "%choice%"=="5" goto remove
-if /i "%choice%"=="6" goto test
+if /i "%choice%"=="2" goto export
+if /i "%choice%"=="3" goto status
+if /i "%choice%"=="4" goto start
+if /i "%choice%"=="5" goto stop
+if /i "%choice%"=="6" goto remove
+if /i "%choice%"=="7" goto test
 if /i "%choice%"=="Q" goto end
 echo 无效选择 & timeout /t 2 >nul & goto menu
+
+REM ========================================
+REM [2] 导出身份卡
+REM ========================================
+:export
+cls
+echo.
+echo ════════════════════════════════════════
+echo   导出身份卡
+echo ════════════════════════════════════════
+echo.
+
+REM 检查/生成密钥
+set KEY_FILE=%USERPROFILE%\.ssh\id_ed25519
+if not exist "%KEY_FILE%" (
+    echo 生成 SSH 密钥...
+    ssh-keygen -t ed25519 -f "%KEY_FILE%" -N "" -C "windows@tunnel"
+    echo √ 已生成
+)
+echo.
+
+REM 获取本机 IP
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr "IPv4"') do set MY_IP=%%a
+set MY_IP=%MY_IP: =%
+
+echo ──────────────────────────────────────
+echo   身份卡（复制到 Linux 服务器上）
+echo   在 Linux 上运行: bash tunnel-mesh.sh import
+echo   粘贴此身份卡即可部署 Windows 的公钥
+echo ──────────────────────────────────────
+echo.
+echo ===IDENTITY===
+echo NAME=%COMPUTERNAME%
+echo IP=%MY_IP%
+echo PORT=22
+echo USER=%USERNAME%
+type "%KEY_FILE%.pub"
+echo ===END===
+echo.
+echo ──────────────────────────────────────
+echo.
+echo 在阿里云和 node3 上各导入一次这个身份卡，
+echo 就可以让 Windows 免密 SSH 连接它们。
+echo.
+pause
+goto menu
 
 REM ========================================
 REM [1] 导入隧道命令
