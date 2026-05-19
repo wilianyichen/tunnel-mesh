@@ -16,6 +16,9 @@ config_load() {
 
 config_save() {
     mkdir -p "$CONFIG_DIR"
+    # 自动备份（保留最近5个）
+    [ -f "$CONFIG_FILE" ] && cp "$CONFIG_FILE" "$CONFIG_DIR/config.json.bak.$(date +%Y%m%d-%H%M%S)"
+    ls -t "$CONFIG_DIR"/config.json.bak.* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null
     echo "$1" > "$CONFIG_FILE"
 }
 
@@ -180,13 +183,25 @@ print(json.dumps(d,indent=2))
         fi
     fi
 
-    # ── 可达性 ──
+    # ── 可达性检测 ──
     echo ""
-    echo "你能直接连到 $PEER_NAME ($PEER_IP:$PEER_PORT) 吗？"
-    echo "  [1] 能 → 直接SSH"
-    echo "  [2] 不能 → 需要反向隧道"
-    read -p "选择: " REACH
-    REACH=${REACH:-2}
+    echo "检测到 $PEER_NAME ($PEER_IP:$PEER_PORT) 的连通性..."
+
+    CAN_REACH=0
+    timeout 3 bash -c "echo >/dev/tcp/${PEER_IP}/${PEER_PORT}" 2>/dev/null && CAN_REACH=1
+
+    if [ $CAN_REACH -eq 1 ]; then
+        echo "✓ 网络可达 — 你可以直连对方"
+        echo ""
+        echo "选择连接方式："
+        echo "  [1] 正向直连（推荐）  → 直接 SSH，简单快速"
+        echo "  [2] 反向隧道          → 通过中转，更稳定/支持双向"
+        read -p "选择 [1]: " REACH
+        REACH=${REACH:-1}
+    else
+        echo "✗ 网络不可达 — 必须使用反向隧道"
+        REACH=2
+    fi
 
     if [ "$REACH" = "1" ]; then
         mkdir -p ~/.ssh
@@ -223,26 +238,19 @@ print(json.dumps(d,indent=2))
 
         echo ""
         echo "✓ 契约已建立！ssh $PEER_NAME"
-
     else
         # ── 反向隧道 ──
         echo ""
         echo "反向隧道需要一台维持者持续运行 SSH。"
-
-        # 检测自己能否连对方
-        CAN_REACH=0
-        timeout 3 bash -c "echo >/dev/tcp/${PEER_IP}/${PEER_PORT}" 2>/dev/null && CAN_REACH=1
-
         echo ""
+
         if [ $CAN_REACH -eq 1 ]; then
-            echo "你能直连对方 ✓"
-            echo "  [1] 我自己维持隧道"
+            echo "  [1] 我自己维持隧道（本机运行 ssh -R）"
         else
-            echo "你不能直连对方 ✗（端口不可达）"
-            echo "  [1] 我自己维持（不可行）"
+            echo "  [1] 我自己维持（不可行 — 无法连到对方）"
         fi
-        echo "  [2] 外部机器维持（如 Windows）"
-        read -p "选择: " MAINTAINER
+        echo "  [2] 外部机器维持（如 Windows，需能同时连你我）"
+        read -p "选择 [2]: " MAINTAINER
         MAINTAINER=${MAINTAINER:-2}
 
         [ "$MAINTAINER" = "1" ] && [ $CAN_REACH -eq 0 ] && { echo "⚠ 不可行，自动选 [2]"; MAINTAINER=2; }
@@ -320,6 +328,17 @@ d['contracts'].append({
 print(json.dumps(d,indent=2))
 ")
         config_save "$CONFIG"
+    fi
+
+    # ── 自动验证 ──
+    if [ "$REACH" = "1" ]; then
+        echo ""
+        echo "验证连接: ssh $PEER_NAME hostname ..."
+        if timeout 5 ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$PEER_NAME" "hostname" 2>/dev/null; then
+            echo "✓ 连接成功！"
+        else
+            echo "⚠ 连接失败，请检查密钥是否正确部署"
+        fi
     fi
 }
 
