@@ -128,12 +128,29 @@ EOF
     else
         # ── 反向隧道 ──
         echo ""
-        echo "反向隧道需要一台「维持者」机器（能同时连你我）。"
-        echo "维持者是？"
-        echo "  [1] 我自己（我能连到对方）"
-        echo "  [2] 其他机器（如 Windows）"
+        echo "反向隧道需要一台「维持者」持续运行 SSH 进程。"
+        echo ""
+
+        # 检测自己能否连到对方
+        CAN_REACH=0
+        timeout 3 bash -c "echo >/dev/tcp/${PEER_IP}/${PEER_PORT}" 2>/dev/null && CAN_REACH=1
+
+        if [ $CAN_REACH -eq 1 ]; then
+            echo "你能直接连到对方 ✓"
+            echo "  [1] 我自己维持隧道（本机持续运行 ssh -R）"
+        else
+            echo "你不能直接连到对方 ✗（端口不可达）"
+            echo "  [1] 我自己维持（不可行，连接会失败）"
+        fi
+        echo "  [2] 外部机器维持（如 Windows，需能同时连你我）"
         read -p "选择: " MAINTAINER
         MAINTAINER=${MAINTAINER:-2}
+
+        if [ "$MAINTAINER" = "1" ] && [ $CAN_REACH -eq 0 ]; then
+            echo ""
+            echo "⚠ 你无法直连对方，[1] 不可行。自动选 [2]"
+            MAINTAINER=2
+        fi
 
         # 分配端口
         USED_PORTS=$(grep "Port " ~/.ssh/config 2>/dev/null | grep -oE "[0-9]+" | sort -n)
