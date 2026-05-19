@@ -137,9 +137,14 @@ if "%CTYPE%"=="reverse" (
 
         powershell -Command "Unregister-ScheduledTask -TaskName 'Tunnel-%SNAME%' -Confirm:$false -ErrorAction SilentlyContinue; $a=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-WindowStyle Hidden -File \"!script_path!\"'; $t=New-ScheduledTaskTrigger -AtStartup; $s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1); Register-ScheduledTask -TaskName 'Tunnel-%SNAME%' -Action $a -Trigger $t -Settings $s -RunLevel Highest -Force; Start-ScheduledTask -TaskName 'Tunnel-%SNAME%'"
 
-        echo ✓ 隧道已创建并启动
-        echo   任务名: Tunnel-%SNAME%
-        echo   开机自启: 已配置
+    echo ✓ 隧道已创建并启动
+    echo   任务名: Tunnel-%SNAME%
+    echo   开机自启: 已配置
+
+    REM 保存配置
+    if not exist "%USERPROFILE%\.tunnel-mesh" mkdir "%USERPROFILE%\.tunnel-mesh"
+    echo %DATE% %TIME% imported %SNAME% tunnel >> "%USERPROFILE%\.tunnel-mesh\contracts.log"
+    echo %TCMD% > "%USERPROFILE%\.tunnel-mesh\tunnel-%SNAME%.cmd"
     )
 )
 
