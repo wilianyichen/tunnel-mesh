@@ -1,26 +1,25 @@
 # Tunnel Mesh
 
-> 通用服务器连接工具。每台服务器一个命令，选数字就行。
+> Linux: `bash tunnel-mesh.sh` / Windows: 双击 `tunnel-mesh.bat`
 
+## 快速开始
+
+**Linux**：导出身份卡或导入对方身份卡
 ```bash
 bash tunnel-mesh.sh
 ```
 
----
+**Windows**：粘贴 Linux 生成的隧道命令，自动创建开机自启
+```
+双击 tunnel-mesh.bat → [1]导入 → 粘贴 ssh -R ... 命令
+```
 
 ## 文档
 
 | 文档 | 内容 |
 |------|------|
-| [SETUP-BEGINNER.md](docs/SETUP-BEGINNER.md) | 小白完整指南（三服务器双向连接） |
-| [FILES.md](FILES.md) | 文件树和说明 |
-
-## 核心文件
-
-| 文件 | 平台 | 作用 |
-|------|------|------|
-| `tunnel-mesh.sh` | Linux | 统一脚本（导出+导入+向导） |
-| `windows-contract.bat` | Windows | 导入隧道命令+管理 |
+| [小白完整指南](docs/SETUP-BEGINNER.md) | 三服务器双向连接 |
+| [文件树说明](FILES.md) | 全部文件清单 |
 
 ## 许可证
 
