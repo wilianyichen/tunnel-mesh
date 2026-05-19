@@ -150,11 +150,15 @@ do_import() {
 
     PEER_NAME=$(echo "$IDENTITY" | grep "^NAME=" | cut -d= -f2)
     PEER_IP=$(echo "$IDENTITY" | grep "^IP=" | cut -d= -f2)
+    PEER_PUBLIC_IP=$(echo "$IDENTITY" | grep "^PUBLIC_IP=" | cut -d= -f2)
     PEER_PORT=$(echo "$IDENTITY" | grep "^PORT=" | cut -d= -f2)
     PEER_USER=$(echo "$IDENTITY" | grep "^USER=" | cut -d= -f2)
     PEER_PUBKEY=$(echo "$IDENTITY" | grep "^PUBKEY=" | cut -d= -f2-)
     PEER_FP=$(echo "$IDENTITY" | grep "^FINGERPRINT=" | cut -d= -f2)
 
+    # 隧道目标用公网IP（如有），否则用内网IP
+    PEER_TUNNEL_IP="$PEER_IP"
+    [ -n "$PEER_PUBLIC_IP" ] && PEER_TUNNEL_IP="$PEER_PUBLIC_IP"
     [ -z "$PEER_NAME" ] && { echo "❌ 无效身份卡"; return; }
 
     # ── 重复检测 ──
@@ -177,7 +181,7 @@ print(json.dumps(d,indent=2))
 import json,sys
 d=json.load(sys.stdin)
 d['servers']['$PEER_NAME']={
-    'name':'$PEER_NAME','ip':'$PEER_IP','port':${PEER_PORT:-22},'user':'${PEER_USER:-root}',
+    'name':'$PEER_NAME','ip':'$PEER_IP','public_ip':'${PEER_PUBLIC_IP:-}','port':${PEER_PORT:-22},'user':'${PEER_USER:-root}',
     'fingerprint':'${PEER_FP:-unknown}',
     'imported_at':'$(date -Iseconds)'
 }
@@ -186,6 +190,7 @@ print(json.dumps(d,indent=2))
     config_save "$CONFIG"
 
     echo "对方: $PEER_NAME ($PEER_IP:$PEER_PORT)"
+    [ -n "$PEER_PUBLIC_IP" ] && [ "$PEER_PUBLIC_IP" != "$PEER_IP" ] && echo "      公网IP: $PEER_PUBLIC_IP"
 
     # ── 公钥 ──
     if [ -n "$PEER_PUBKEY" ] && [ "$PEER_PUBKEY" != "PUBKEY=" ]; then
@@ -199,10 +204,15 @@ print(json.dumps(d,indent=2))
 
     # ── 可达性检测 ──
     echo ""
-    echo "检测到 $PEER_NAME ($PEER_IP:$PEER_PORT) 的连通性..."
+    echo "检测到 $PEER_NAME ($PEER_NAME:$PEER_PORT) 的连通性..."
+    if [ -n "$PEER_PUBLIC_IP" ] && [ "$PEER_PUBLIC_IP" != "$PEER_IP" ]; then
+        echo "  内网IP: $PEER_IP (本机可能不可达)"
+        echo "  公网IP: $PEER_PUBLIC_IP (隧道将使用此IP)"
+    fi
+    echo ""
 
     CAN_REACH=0
-    timeout 3 bash -c "echo >/dev/tcp/${PEER_IP}/${PEER_PORT}" 2>/dev/null && CAN_REACH=1
+    timeout 3 bash -c "echo >/dev/tcp/${PEER_TUNNEL_IP}/${PEER_PORT}" 2>/dev/null && CAN_REACH=1
 
     if [ $CAN_REACH -eq 1 ]; then
         echo "✓ 网络可达 — 你可以直连对方"
@@ -285,12 +295,12 @@ print(json.dumps(d,indent=2))
         config_save "$CONFIG"
 
         if [ "$MAINTAINER" = "1" ]; then
-            TUNNEL_CMD="ssh -R ${TUNNEL_PORT}:localhost:${PORT} ${PEER_USER}@${PEER_IP} -p ${PEER_PORT}"
+            TUNNEL_CMD="ssh -R ${TUNNEL_PORT}:localhost:${PORT} ${PEER_USER}@${PEER_TUNNEL_IP} -p ${PEER_PORT}"
             echo ""
             echo "维持命令: $TUNNEL_CMD"
             echo "对方访问: ssh -p $TUNNEL_PORT $USER@$IP"
         else
-            TUNNEL_CMD="ssh -R ${TUNNEL_PORT}:${PEER_IP}:${PEER_PORT} ${USER}@${TUNNEL_IP} -p ${PORT}"
+            TUNNEL_CMD="ssh -R ${TUNNEL_PORT}:${PEER_TUNNEL_IP}:${PEER_PORT} ${USER}@${TUNNEL_IP} -p ${PORT}"
 
             # 本机 SSH config
             mkdir -p ~/.ssh
