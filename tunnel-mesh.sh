@@ -5,27 +5,21 @@
 # ========================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# 加载库
 source "$SCRIPT_DIR/scripts/lib/detect.sh"
 source "$SCRIPT_DIR/scripts/lib/config.sh"
-
-# 初始化
 detect_identity
 CONFIG=$(config_load)
 CONFIG_PORT_NEXT=$(config_json_get "import json,sys;print(json.load(sys.stdin)['ports']['next'])")
-
-# 加载子脚本
 source "$SCRIPT_DIR/scripts/export.sh"
 source "$SCRIPT_DIR/scripts/import.sh"
 source "$SCRIPT_DIR/scripts/status.sh"
 source "$SCRIPT_DIR/scripts/remove.sh"
 source "$SCRIPT_DIR/scripts/wizard.sh"
 source "$SCRIPT_DIR/scripts/path.sh"
-source "$SCRIPT_DIR/scripts/log.sh"
 source "$SCRIPT_DIR/scripts/recover.sh"
+source "$SCRIPT_DIR/scripts/log.sh"
 
-# ── 直接调用模式 ──
+# 直接调用
 case "${1:-menu}" in
     export)  do_export; exit 0 ;;
     import)  do_import; exit 0 ;;
@@ -37,23 +31,23 @@ case "${1:-menu}" in
     recover) do_recover; exit 0 ;;
 esac
 
-# ── 交互菜单 ──
+# 交互菜单
 while true; do
     show_header
     echo ""
-    echo "╔════════════════════════════════════════╗"
-    echo "║                                        ║"
-    echo "║  [1] 导出身份卡（给别人）              ║"
-    echo "║  [2] 导入身份卡（连接别人）            ║"
-    echo "║  [3] 审视契约（查看所有连接）          ║"
-    echo "║  [4] 废契（删除连接）                  ║"
-    echo "║  [5] 配置向导                          ║"
-    echo "║  [6] 探寻路径（多跳）                  ║"
-    echo "║  [7] 恢复配置                          ║"
-    echo "║  [8] 查看日志                          ║"
-    echo "║  [Q] 退出                              ║"
-    echo "║                                        ║"
-    echo "╚════════════════════════════════════════╝"
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║                                                  ║"
+    echo "║  📤 [1] 导出身份卡 — 把本机信息给对方            ║"
+    echo "║  📥 [2] 导入身份卡 — 接收对方信息，建立连接      ║"
+    echo "║  📋 [3] 审视契约   — 查看已有连接                ║"
+    echo "║  🗑  [4] 废契       — 删除某个连接                ║"
+    echo "║  🧭 [5] 配置向导   — 告诉我怎么做                ║"
+    echo "║  🔍 [6] 探寻路径   — 查看到目标的跳转路径        ║"
+    echo "║  🔄 [7] 恢复配置   — 重建 SSH config              ║"
+    echo "║  📜 [8] 查看日志   — 浏览隧道日志                ║"
+    echo "║  ❌ [Q] 退出                                     ║"
+    echo "║                                                  ║"
+    echo "╚══════════════════════════════════════════════════╝"
     echo ""
     read -p "选择: " C
     case $C in
