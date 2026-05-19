@@ -539,41 +539,100 @@ for name in d.get('servers',{}):
     echo "计算路径: $HOSTNAME → $TARGET"
 
     # 调用 graph.py 计算最短路径
-    python3 -c "
+    RESULT=$(python3 -c "
 import json,sys
 sys.path.insert(0,'$(dirname "$0")/scripts')
 from graph import Graph
 
 config=json.load(open('$HOME/.tunnel-mesh/config.json'))
-
 g=Graph()
-servers=config.get('servers',{})
-for name in servers:
+for name in config.get('servers',{}):
     g.add_vertex(name)
-
 for c in config.get('contracts',[]):
-    master=c['master']
-    servant=c['servant']
-    if master in servers and servant in servers:
-        weight=1.5 if c.get('type')=='reverse' else 1.0
-        g.add_edge(master,servant,weight)
+    m=c['master']; s=c['servant']
+    if m in g.vertices and s in g.vertices:
+        g.add_edge(m,s,1.5 if c.get('type')=='reverse' else 1.0)
 
 path=g.shortest_path('$HOSTNAME','$TARGET')
 if path:
     hops=len(path)-1
-    weight=sum(g.edges[path[i]][path[i+1]] for i in range(hops) if path[i] in g.edges and path[i+1] in g.edges[path[i]])
-    print(f'路径: {\" → \".join(path)}')
-    print(f'跳数: {hops}')
-    
-    # 生成 ProxyJump 命令
-    if hops>1:
-        jumps=','.join(path[1:-1])
-        print(f'连接: ssh -J {jumps} {path[-1]}')
-    else:
-        print(f'连接: ssh {path[-1]}')
+    jumps=','.join(path[1:-1]) if hops>1 else ''
+    cmd=f'ssh -J {jumps} {path[-1]}' if hops>1 else f'ssh {path[-1]}'
+    print(json.dumps({'ok':True,'path':' → '.join(path),'hops':hops,'cmd':cmd,'jumps':jumps}))
 else:
-    print('不可达')
-" 2>/dev/null || echo "  计算失败（graph.py 可能不兼容）"
+    print(json.dumps({'ok':False}))
+" 2>/dev/null)
+
+    if [ -z "$RESULT" ]; then
+        echo "  计算失败（graph.py 可能不兼容）"
+        return
+    fi
+
+    OK=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['ok'])" 2>/dev/null)
+    if [ "$OK" != "True" ]; then
+        echo "  不可达"
+        return
+    fi
+
+    PATH_STR=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['path'])" 2>/dev/null)
+    HOPS=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['hops'])" 2>/dev/null)
+    SSH_CMD=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['cmd'])" 2>/dev/null)
+    JUMPS=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('jumps',''))" 2>/dev/null)
+
+    echo "  路径: $PATH_STR"
+    echo "  跳数: $HOPS"
+    echo "  连接: $SSH_CMD"
+
+    # ── 一键配置 ProxyJump ──
+    if [ "$HOPS" -gt 1 ] && [ -n "$JUMPS" ]; then
+        echo ""
+        read -p "  是否保存为永久连接？（下次直接 ssh $TARGET）[Y/n]: " SAVE
+        [ "$SAVE" = "n" ] || [ "$SAVE" = "N" ] && return
+
+        mkdir -p ~/.ssh
+        [ -f ~/.ssh/config ] && cp ~/.ssh/config ~/.ssh/config.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null
+
+        if grep -q "Host $TARGET" ~/.ssh/config 2>/dev/null; then
+            echo "  SSH config 已存在 Host $TARGET，跳过"
+        else
+            cat >> ~/.ssh/config << EOF
+
+# Tunnel Mesh - $TARGET（多跳: $PATH_STR）
+Host $TARGET
+    HostName $TARGET
+    ProxyJump $JUMPS
+    User root
+    StrictHostKeyChecking no
+EOF
+            chmod 600 ~/.ssh/config
+            echo "  ✓ 已保存！ssh $TARGET"
+        fi
+    fi
+}
+
+# ══════════════════════════════════════════════════════════
+# 隧道日志查看
+# ══════════════════════════════════════════════════════════
+do_logs() {
+    LOG_DIR="$HOME/.tunnel-mesh/logs"
+    echo ""
+    echo "════════════════════════════════════════"
+    echo "  隧道日志"
+    echo "════════════════════════════════════════"
+
+    if [ ! -d "$LOG_DIR" ] || [ -z "$(ls -A "$LOG_DIR" 2>/dev/null)" ]; then
+        echo ""
+        echo "暂无日志。隧道日志在 Windows 维持者上。"
+        echo "查看 Windows 日志: C:\\tunnel-mesh\\logs\\"
+        return
+    fi
+
+    echo ""
+    ls -lt "$LOG_DIR" | head -5
+    echo ""
+    read -p "查看哪个日志（输入完整文件名，回车跳过）: " LOGFILE
+    [ -z "$LOGFILE" ] && return
+    [ -f "$LOG_DIR/$LOGFILE" ] && tail -30 "$LOG_DIR/$LOGFILE" || echo "未找到"
 }
 
 # ══════════════════════════════════════════════════════════
@@ -598,6 +657,7 @@ main_menu() {
     echo "║  [5] 配置向导                          ║"
     echo "║  [6] 探寻路径（多跳）                  ║"
     echo "║  [7] 恢复配置                          ║"
+    echo "║  [8] 查看日志                          ║"
     echo "║  [Q] 退出                              ║"
     echo "║                                        ║"
     echo "╚════════════════════════════════════════╝"
@@ -611,6 +671,7 @@ main_menu() {
         5) do_wizard ;;
         6) do_path ;;
         7) do_recover ;;
+        8) do_logs ;;
         q|Q) exit 0 ;;
     esac
 }

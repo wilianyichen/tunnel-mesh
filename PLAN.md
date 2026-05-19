@@ -162,4 +162,20 @@ P1（重要，做完 P0 再做）
 
 P2（增强）
   Task 6: 配置恢复
+  Task 7: PowerShell 迁移
+
+---
+
+## Task 7：Windows bat → PowerShell
+
+**bat 问题**：字符串脆弱、无 JSON、编码麻烦
+
+**迁移分阶段**：
+  Phase A: Import/Status/Start/Stop 核心功能
+  Phase B: config.json 持久化同步 Linux
+  Phase C: 健康检查、日志、一键安装
+
+**保留 bat 为启动器**：
+  `@powershell -File windows-contract.ps1`
+
 ```
