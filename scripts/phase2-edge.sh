@@ -1,0 +1,148 @@
+#!/bin/bash
+# phase2-edge.sh - 边规划：交互式构建单条边
+
+do_edge_plan() {
+    echo ""
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║  边规划 — 构建一条主→仆连接                       ║"
+    echo "║  你告诉我谁连谁，我检测网络并给出方案              ║"
+    echo "╚══════════════════════════════════════════════════╝"
+    echo ""
+
+    # Step 1: 主是谁？
+    echo "【第1步】谁是「主」（发起连接的一方）？"
+    echo "  当前本机是: $HOSTNAME"
+    echo "  [1] 就是本机 ($HOSTNAME)"
+    echo "  [2] 其他服务器"
+    read -p "  选择 [1]: " MC; MC=${MC:-1}
+    if [ "$MC" = "1" ]; then
+        MASTER="$HOSTNAME"
+        MASTER_IP="$IP"; MASTER_PORT="$PORT"; MASTER_USER="$USER"
+    else
+        read -p "  主服务器名称: " MASTER
+        server_exists "$MASTER" || { echo "  ❌ $MASTER 不在已知列表中"; return; }
+    fi
+
+    # Step 2: 仆是谁？
+    echo ""
+    echo "【第2步】谁是「仆」（被连接的一方）？"
+    echo "  已知服务器:"
+    server_list
+    echo ""
+    read -p "  仆服务器名称: " SERVANT
+
+    if server_exists "$SERVANT"; then
+        # 从图里取
+        SI=$(config_json "import json,sys;d=json.load(sys.stdin);s=d['servers']['$SERVANT'];print(s['ip'],s.get('port',22),s.get('user','root'),s.get('public_ip',''))" 2>/dev/null)
+        read SIP SPORT SUSER SPUBIP <<< "$SI"
+        echo "  ✓ 已知: $SERVANT ($SIP:$SPORT)"
+    else
+        echo "  新服务器，请输入信息:"
+        read -p "  IP地址: " SIP
+        read -p "  SSH端口 [22]: " SPORT; SPORT=${SPORT:-22}
+        read -p "  用户名 [root]: " SUSER; SUSER=${SUSER:-root}
+        read -p "  有公网IP吗？[无]: " SPUBIP
+        server_add "$SERVANT" "$SIP" "$SPORT" "$SUSER" "" ""
+    fi
+
+    # Step 3: 检测连通性
+    echo ""
+    echo "【第3步】检测网络连通性..."
+    echo "  测试: $MASTER → $SERVANT ($SIP:$SPORT)"
+
+    local reachable=0
+    if [ "$MASTER" = "$HOSTNAME" ]; then
+        tcp_reachable "$SIP" "$SPORT" && reachable=1
+    fi
+
+    # 也检测反向
+    echo "  对方能连到你吗？"
+    echo "    [1] 能    [2] 不能    [3] 不知道"
+    read -p "  选择 [3]: " REV; REV=${REV:-3}
+
+    # Step 4: 判定边类型
+    echo ""
+    echo "【第4步】判定连接方式..."
+
+    if [ $reachable -eq 1 ] && [ "$REV" = "1" ]; then
+        EDGE_TYPE="forward"
+        echo "  ✓ 双向可达 → 默认正向直连"
+    elif [ $reachable -eq 1 ]; then
+        EDGE_TYPE="forward"
+        echo "  ✓ 你能直接连到对方 → 正向直连"
+    elif [ "$REV" = "1" ]; then
+        EDGE_TYPE="reverse"
+        echo "  → 对方能连你，你不能连对方 → 反向隧道"
+    else
+        EDGE_TYPE="reverse"
+        echo "  → 双方不能互连 → 需要桥接维持者（反向隧道）"
+    fi
+
+    # Step 5: 如果是 reverse → 问维持者
+    if [ "$EDGE_TYPE" = "reverse" ]; then
+        echo ""
+        echo "【第5步】谁维持反向隧道？"
+        echo "  [1] 仆自己维持（仆能连主）"
+        echo "  [2] 外部机器（如 Windows 能同时连双方）"
+        read -p "  选择 [2]: " MAINTAINER; MAINTAINER=${MAINTAINER:-2}
+
+        TUNNEL_PORT=$(port_allocate)
+        read -p "  隧道端口 [$TUNNEL_PORT]: " TP; TUNNEL_PORT=${TP:-$TUNNEL_PORT}
+
+        if [ "$MAINTAINER" = "2" ]; then
+            local TARGET_IP="$SIP"
+            [ -n "$SPUBIP" ] && TARGET_IP="$SPUBIP"
+            TUNNEL_CMD="ssh -R ${TUNNEL_PORT}:${TARGET_IP}:${SPORT} ${USER}@${TUNNEL_IP} -p ${PORT}"
+
+            echo ""
+            echo "╔══════════════════════════════════════════════════╗"
+            echo "║  边: $MASTER → $SERVANT (反向隧道)                ║"
+            echo "╠══════════════════════════════════════════════════╣"
+            echo "║  本机 ssh $SERVANT                                ║"
+            echo "║  发给维持者的隧道命令:                            ║"
+            echo "║  $TUNNEL_CMD"
+            echo "╚══════════════════════════════════════════════════╝"
+
+            # 写本机 SSH config
+            mkdir -p ~/.ssh
+            if ! grep -q "Host $SERVANT" ~/.ssh/config 2>/dev/null; then
+                cat >> ~/.ssh/config << EOF
+
+# Tunnel Mesh - $SERVANT (反向隧道 :$TUNNEL_PORT)
+Host $SERVANT
+    HostName localhost
+    Port $TUNNEL_PORT
+    User ${SUSER:-root}
+    StrictHostKeyChecking no
+    HostKeyAlias $SERVANT
+EOF
+                chmod 600 ~/.ssh/config
+            fi
+        else
+            TUNNEL_CMD="ssh -R ${TUNNEL_PORT}:localhost:${PORT} ${SUSER}@${SIP} -p ${SPORT}"
+            echo "  维持命令: $TUNNEL_CMD"
+        fi
+
+        # 保存边
+        edge_add "$MASTER" "$SERVANT" "reverse" "$TUNNEL_PORT" "$TUNNEL_CMD" "$MAINTAINER"
+    else
+        # 正向
+        mkdir -p ~/.ssh
+        if ! grep -q "Host $SERVANT" ~/.ssh/config 2>/dev/null; then
+            cat >> ~/.ssh/config << EOF
+
+# Tunnel Mesh - $SERVANT (直连)
+Host $SERVANT
+    HostName $SIP
+    Port ${SPORT:-22}
+    User ${SUSER:-root}
+    StrictHostKeyChecking no
+EOF
+            chmod 600 ~/.ssh/config
+        fi
+        edge_add "$MASTER" "$SERVANT" "forward" "0" "" ""
+        echo ""
+        echo "  ✓ 正向连接已配置: ssh $SERVANT"
+        timeout 5 ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$SERVANT" "hostname" 2>/dev/null && echo "  ✓ 连接测试成功"
+    fi
+}
