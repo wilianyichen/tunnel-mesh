@@ -3,8 +3,16 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 REM ========================================
 REM Tunnel Mesh Windows 契约大厅
-REM 用法: 直接双击运行
 REM ========================================
+
+REM 管理员权限检查
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo 请以管理员身份运行！
+    echo 右键 tunnel-mesh.bat → 以管理员身份运行
+    pause
+    exit /b 1
+)
 
 :menu
 cls
