@@ -52,11 +52,7 @@ server_exists() {
 
 server_add() {
     local name=$1 ip=$2 port=$3 user=$4 fp=$5 pubkey=$6
-    CONFIG=$(config_json "
-import json,sys;d=json.load(sys.stdin)
-d['servers']['$name']={'name':'$name','ip':'$ip','port':${port:-22},'user':'${user:-root},'fingerprint':'${fp:-}','pubkey':'${pubkey:-}','added':'$(date -Iseconds)'}
-print(json.dumps(d,indent=2))
-")
+    CONFIG=$(config_json "import json,sys;d=json.load(sys.stdin);d['servers']['$name']={'name':'$name','ip':'$ip','port':${port:-22},'user':'${user:-root}','fingerprint':'${fp:-}','pubkey':'${pubkey:-}','added':'$(date -Iseconds)'};print(json.dumps(d,indent=2))")
     config_save "$CONFIG"
 }
 
