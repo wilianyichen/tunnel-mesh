@@ -167,28 +167,18 @@ echo }
 
 echo √ 脚本已生成: !SCRIPT!
 
-REM 注册 Windows 计划任务（开机自启）
+REM 注册计划任务
 echo.
 echo 配置开机自启...
 
-REM 生成任务创建脚本
-set SETUP_PS=C:\tunnel-mesh\scripts\setup-%TARGET%.ps1
-(
-echo $taskName='Tunnel-%TARGET%'
-echo $scriptPath='!SCRIPT!'
-echo Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-echo $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-WindowStyle Hidden -File `"$scriptPath`""
-echo $trigger=New-ScheduledTaskTrigger -AtStartup
-echo $settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
-echo Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force
-echo Start-ScheduledTask -TaskName $taskName
-echo Write-Host "OK"
-) > "!SETUP_PS!"
+REM 写临时配置给 register-tunnel.ps1
+set CFG_FILE=C:\tunnel-mesh\scripts\.task-%TARGET%.json
+(echo { ^"TaskName^": ^"Tunnel-%TARGET%^", ^"ScriptPath^": ^"!SCRIPT!^" }) > "!CFG_FILE!"
 
-powershell -ExecutionPolicy Bypass -File "!SETUP_PS!"
+powershell -ExecutionPolicy Bypass -File "C:\tunnel-mesh\scripts\register-tunnel.ps1" -ConfigFile "!CFG_FILE!"
 if !errorlevel! neq 0 (
-    echo ⚠ 计划任务创建失败，请检查是否以管理员运行
-    echo   错误详情: 查看 !SETUP_PS!
+    echo ⚠ 创建失败，手动检查:
+    echo   C:\tunnel-mesh\scripts\register-tunnel.ps1 -ConfigFile "!CFG_FILE!"
 )
 
 REM 保存命令到配置
