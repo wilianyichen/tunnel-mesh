@@ -169,16 +169,20 @@ echo }
 
 echo √ 脚本已生成: !SCRIPT!
 
-REM 注册计划任务（直接用 schtasks，不用 PowerShell）
+REM 生成 wrapper bat（schtasks 只能调简单命令，用 wrapper 绕开引号问题）
+set WRAPPER=C:\tunnel-mesh\scripts\run-!TARGET!.bat
+echo @powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "!SCRIPT!" > "!WRAPPER!"
+
+REM 注册计划任务
 echo.
 echo 配置开机自启...
-schtasks /create /tn "Tunnel-!TARGET!" /tr "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File \"!SCRIPT!\"" /sc onstart /ru SYSTEM /rl HIGHEST /f 2>nul
+schtasks /create /tn "Tunnel-!TARGET!" /tr "!WRAPPER!" /sc onstart /ru SYSTEM /rl HIGHEST /f 2>nul
 if !errorlevel! neq 0 (
-    echo ⚠ schtasks 失败，重试...
     schtasks /delete /tn "Tunnel-!TARGET!" /f 2>nul
-    schtasks /create /tn "Tunnel-!TARGET!" /tr "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File \"!SCRIPT!\"" /sc onstart /ru SYSTEM /rl HIGHEST /f
+    schtasks /create /tn "Tunnel-!TARGET!" /tr "!WRAPPER!" /sc onstart /ru SYSTEM /rl HIGHEST /f
 )
 schtasks /run /tn "Tunnel-!TARGET!" 2>nul
+echo 状态:
 schtasks /query /tn "Tunnel-!TARGET!" /fo list | findstr "Status"
 
 REM 保存命令到配置
