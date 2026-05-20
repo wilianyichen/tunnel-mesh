@@ -18,6 +18,7 @@ source "$SCRIPT_DIR/scripts/wizard.sh"
 source "$SCRIPT_DIR/scripts/path.sh"
 source "$SCRIPT_DIR/scripts/recover.sh"
 source "$SCRIPT_DIR/scripts/log.sh"
+source "$SCRIPT_DIR/scripts/ssh-config.sh"
 
 # 直接调用
 case "${1:-menu}" in
@@ -28,6 +29,7 @@ case "${1:-menu}" in
     wizard)  do_wizard; exit 0 ;;
     path)    do_path; exit 0 ;;
     logs)    do_logs; exit 0 ;;
+    ssh)     do_ssh_config; exit 0 ;;  # 新增
     recover) do_recover; exit 0 ;;
 esac
 
@@ -45,6 +47,7 @@ while true; do
     echo "║  🔍 [6] 探寻路径   — 查看到目标的跳转路径        ║"
     echo "║  🔄 [7] 恢复配置   — 重建 SSH config              ║"
     echo "║  📜 [8] 查看日志   — 浏览隧道日志                ║"
+    echo "║  ⚙️  [9] SSH管理    — 管理 ~/.ssh/config 连接     ║"
     echo "║  ❌ [Q] 退出                                     ║"
     echo "║                                                  ║"
     echo "╚══════════════════════════════════════════════════╝"
@@ -59,6 +62,7 @@ while true; do
         6) do_path ;;
         7) do_recover ;;
         8) do_logs ;;
+        9) do_ssh_config ;;
         q|Q) exit 0 ;;
     esac
     echo ""; read -p "按回车继续..."
