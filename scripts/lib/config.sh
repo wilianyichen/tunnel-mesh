@@ -8,11 +8,7 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
 
 config_load() {
     mkdir -p "$CONFIG_DIR"
-    if [ -f "$CONFIG_FILE" ]; then
-        cat "$CONFIG_FILE"
-    else
-        echo '{"servers":{},"edges":[],"ports":{"used":[],"next":2201}}'
-    fi
+    if [ -f "$CONFIG_FILE" ]; then cat "$CONFIG_FILE"; else echo '{"servers":{},"edges":[],"ports":{"used":[],"next":2201}}'; fi
 }
 
 config_save() {
@@ -20,10 +16,16 @@ config_save() {
     [ -f "$CONFIG_FILE" ] && cp "$CONFIG_FILE" "$CONFIG_DIR/config.json.bak.$(date +%Y%m%d-%H%M%S)"
     ls -t "$CONFIG_DIR"/config.json.bak.* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null
     echo "$1" > "$CONFIG_FILE"
+    CONFIG="$1"
+    CONFIG_PORT_NEXT=$(echo "$1" | python3 -c "import json,sys;print(json.load(sys.stdin)['ports']['next'])" 2>/dev/null || echo 2201)
 }
 
 config_json() {
-    echo "$CONFIG" | python3 -c "$1" 2>/dev/null
+    if [ -f "$CONFIG_FILE" ]; then
+        cat "$CONFIG_FILE" | python3 -c "$1" 2>/dev/null
+    else
+        echo '{"servers":{},"edges":[],"ports":{"used":[],"next":2201}}' | python3 -c "$1" 2>/dev/null
+    fi
 }
 
 port_is_free() {
