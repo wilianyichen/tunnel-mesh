@@ -152,6 +152,25 @@ EOF
         CONFIG=$(config_json_get "import json,sys;d=json.load(sys.stdin);d['ports']['used'].append($TUNNEL_PORT);d['ports']['next']=${CONFIG_PORT_NEXT};print(json.dumps(d,indent=2))")
         config_save "$CONFIG"
 
+        # ── IP 选择：有公网+内网两个IP时让用户选 ──
+        if [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$IP" ]; then
+            echo ""
+            echo "  本机有多个IP，维持者用哪个连你？"
+            echo "    [1] 内网: $IP       （对方在同网络时）"
+            echo "    [2] 公网: $PUBLIC_IP （对方在外网时）"
+            read -p "  选择 [2]: " IP_CHOICE; IP_CHOICE=${IP_CHOICE:-2}
+            [ "$IP_CHOICE" = "1" ] && TUNNEL_IP="$IP"
+        fi
+
+        if [ -n "$PEER_PUBLIC_IP" ] && [ "$PEER_PUBLIC_IP" != "$PEER_IP" ] && [ "$MAINTAINER" = "2" ]; then
+            echo ""
+            echo "  对方也有公网+内网两个IP，隧道目标用哪个？"
+            echo "    [1] 内网: $PEER_IP"
+            echo "    [2] 公网: $PEER_PUBLIC_IP"
+            read -p "  选择 [2]: " PEER_IP_CHOICE; PEER_IP_CHOICE=${PEER_IP_CHOICE:-2}
+            [ "$PEER_IP_CHOICE" = "1" ] && PEER_TUNNEL_IP="$PEER_IP"
+        fi
+
         if [ "$MAINTAINER" = "1" ]; then
             TUNNEL_CMD="ssh -R ${TUNNEL_PORT}:localhost:${PORT} ${PEER_USER}@${PEER_TUNNEL_IP} -p ${PEER_PORT}"
             echo ""
