@@ -143,17 +143,17 @@ pause
 
 REM 从命令中提取隧道名称
 for /f "tokens=3 delims=: " %%a in ("!TCMD!") do set TARGET=%%a
-if "%TARGET%"=="" set TARGET=tunnel
+if "!TARGET!"=="" set TARGET=tunnel
 
 REM 创建脚本目录
 if not exist "C:\tunnel-mesh\scripts" mkdir "C:\tunnel-mesh\scripts"
 if not exist "C:\tunnel-mesh\logs" mkdir "C:\tunnel-mesh\logs"
 
-set SCRIPT=C:\tunnel-mesh\scripts\tunnel-%TARGET%.ps1
+set SCRIPT=C:\tunnel-mesh\scripts\tunnel-!TARGET!.ps1
 
 REM 生成 PowerShell 隧道脚本
 (
-echo # Tunnel Mesh - %TARGET%
+echo # Tunnel Mesh - !TARGET!
 echo # 命令: !TCMD!
 echo while ($true) {
 echo     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -172,8 +172,8 @@ echo.
 echo 配置开机自启...
 
 REM 写临时配置给 register-tunnel.ps1
-set CFG_FILE=C:\tunnel-mesh\scripts\.task-%TARGET%.json
-(echo { ^"TaskName^": ^"Tunnel-%TARGET%^", ^"ScriptPath^": ^"!SCRIPT!^" }) > "!CFG_FILE!"
+set CFG_FILE=C:\tunnel-mesh\scripts\.task-!TARGET!.json
+(echo { ^"TaskName^": ^"Tunnel-!TARGET!^", ^"ScriptPath^": ^"!SCRIPT!^" }) > "!CFG_FILE!"
 
 powershell -ExecutionPolicy Bypass -File "C:\tunnel-mesh\scripts\register-tunnel.ps1" -ConfigFile "!CFG_FILE!"
 if !errorlevel! neq 0 (
@@ -183,7 +183,7 @@ if !errorlevel! neq 0 (
 
 REM 保存命令到配置
 if not exist "%USERPROFILE%\.tunnel-mesh" mkdir "%USERPROFILE%\.tunnel-mesh"
-echo !TCMD! > "%USERPROFILE%\.tunnel-mesh\tunnel-%TARGET%.cmd"
+echo !TCMD! > "%USERPROFILE%\.tunnel-mesh\tunnel-!TARGET!.cmd"
 echo %DATE% %TIME% !TCMD! >> "%USERPROFILE%\.tunnel-mesh\contracts.log"
 
 echo.
@@ -191,12 +191,12 @@ echo ═════════════════════════
 echo   导入完成！
 echo ════════════════════════════════════════
 echo.
-echo   隧道: %TARGET%
-echo   开机自启: 已配置 (Tasks\Tunnel-%TARGET%)
+echo   隧道: !TARGET!
+echo   开机自启: 已配置 (Tasks\Tunnel-!TARGET!)
 echo.
 echo   检查状态...
 timeout /t 2 >nul
-powershell -Command "Get-ScheduledTask -TaskName 'Tunnel-%TARGET%' | Select State"
+powershell -Command "Get-ScheduledTask -TaskName 'Tunnel-!TARGET!' | Select State"
 
 echo.
 echo ──────────────────────────────────────
