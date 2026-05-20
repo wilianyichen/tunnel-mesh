@@ -33,6 +33,7 @@ echo ╚════════════════════════
 echo.
 
 set /p choice="选择: "
+set choice=%choice:~0,1%
 if /i "%choice%"=="1" goto import
 if /i "%choice%"=="2" goto export
 if /i "%choice%"=="3" goto status
@@ -105,6 +106,7 @@ echo （从对方服务器复制的隧道命令）
 echo.
 echo ──────────────────────────────────────
 set /p TCMD=
+set "TCMD=!TCMD:\r=!"
 echo ──────────────────────────────────────
 
 REM 验证是 ssh -R 命令
@@ -170,15 +172,9 @@ echo √ 脚本已生成: !SCRIPT!
 REM 注册计划任务
 echo.
 echo 配置开机自启...
-
-REM 写临时配置给 register-tunnel.ps1
-set CFG_FILE=C:\tunnel-mesh\scripts\.task-!TARGET!.json
-(echo { ^"TaskName^": ^"Tunnel-!TARGET!^", ^"ScriptPath^": ^"!SCRIPT!^" }) > "!CFG_FILE!"
-
-powershell -ExecutionPolicy Bypass -File "C:\tunnel-mesh\scripts\register-tunnel.ps1" -ConfigFile "!CFG_FILE!"
+powershell -ExecutionPolicy Bypass -File "C:\tunnel-mesh\scripts\register-tunnel.ps1" -TaskName "Tunnel-!TARGET!" -ScriptPath "!SCRIPT!"
 if !errorlevel! neq 0 (
-    echo ⚠ 创建失败，手动检查:
-    echo   C:\tunnel-mesh\scripts\register-tunnel.ps1 -ConfigFile "!CFG_FILE!"
+    echo ⚠ 创建失败
 )
 
 REM 保存命令到配置
@@ -279,6 +275,7 @@ powershell -Command ^
   "if ($tasks) {$tasks | Format-Table -AutoSize} else {Write-Host '  暂无隧道'}"
 echo.
 set /p del_name="输入要删除的隧道名称: "
+set "del_name=!del_name:\r=!"
 if "%del_name%"=="" goto menu
 
 powershell -Command "Stop-ScheduledTask -TaskName 'Tunnel-%del_name%' -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName 'Tunnel-%del_name%' -Confirm:$false -ErrorAction SilentlyContinue"
@@ -303,6 +300,7 @@ echo 现有隧道:
 powershell -Command "$tasks=Get-ScheduledTask -TaskPath '\' | Where-Object {$_.TaskName -like 'Tunnel-*'} | Select-Object TaskName,State"
 echo.
 set /p test_host="输入 SSH 主机名测试: "
+set "test_host=!test_host:\r=!"
 if "%test_host%"=="" goto menu
 echo.
 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no %test_host% "echo √ 连通" 2>nul && echo √ 连通 || echo × 不可达
