@@ -169,13 +169,17 @@ echo }
 
 echo √ 脚本已生成: !SCRIPT!
 
-REM 注册计划任务
+REM 注册计划任务（直接用 schtasks，不用 PowerShell）
 echo.
 echo 配置开机自启...
-powershell -ExecutionPolicy Bypass -File "C:\tunnel-mesh\scripts\register-tunnel.ps1" -TaskName "Tunnel-!TARGET!" -ScriptPath "!SCRIPT!"
+schtasks /create /tn "Tunnel-!TARGET!" /tr "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File \"!SCRIPT!\"" /sc onstart /ru SYSTEM /rl HIGHEST /f 2>nul
 if !errorlevel! neq 0 (
-    echo ⚠ 创建失败
+    echo ⚠ schtasks 失败，重试...
+    schtasks /delete /tn "Tunnel-!TARGET!" /f 2>nul
+    schtasks /create /tn "Tunnel-!TARGET!" /tr "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File \"!SCRIPT!\"" /sc onstart /ru SYSTEM /rl HIGHEST /f
 )
+schtasks /run /tn "Tunnel-!TARGET!" 2>nul
+schtasks /query /tn "Tunnel-!TARGET!" /fo list | findstr "Status"
 
 REM 保存命令到配置
 if not exist "%USERPROFILE%\.tunnel-mesh" mkdir "%USERPROFILE%\.tunnel-mesh"
@@ -211,10 +215,8 @@ echo ═════════════════════════
 echo   隧道状态
 echo ════════════════════════════════════════
 echo.
-powershell -Command ^
-  "Write-Host '';" ^
-  "$tasks=Get-ScheduledTask -TaskPath '\' | Where-Object {$_.TaskName -like 'Tunnel-*'};" ^
-  "if ($tasks) {$tasks | Select-Object TaskName,State | Format-Table -AutoSize} else {Write-Host '  暂无隧道'}"
+schtasks /query /fo list | findstr "TaskName\|Status" | findstr "Tunnel-"
+if !errorlevel! neq 0 echo   暂无隧道
 echo.
 echo 已保存的隧道命令:
 if exist "%USERPROFILE%\.tunnel-mesh\*.cmd" (
