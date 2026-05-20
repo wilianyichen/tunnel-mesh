@@ -5,13 +5,12 @@ REM ========================================
 REM Tunnel Mesh Windows 契约大厅
 REM ========================================
 
-REM 管理员权限检查
+REM 管理员权限检查（自动申请提权）
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo 请以管理员身份运行！
-    echo 右键 tunnel-mesh.bat → 以管理员身份运行
-    pause
-    exit /b 1
+    echo 正在申请管理员权限...
+    powershell -Command "Start-Process '%~f0' -Verb RunAs"
+    exit /b
 )
 
 :menu
@@ -197,12 +196,15 @@ echo.
 echo   隧道: %TARGET%
 echo   开机自启: 已配置 (Tasks\Tunnel-%TARGET%)
 echo.
-echo   测试连通性...
-timeout /t 5 >nul
+echo   检查状态...
+timeout /t 2 >nul
 powershell -Command "Get-ScheduledTask -TaskName 'Tunnel-%TARGET%' | Select State"
 
 echo.
-pause
+echo ──────────────────────────────────────
+echo   可以继续导入下一条隧道命令
+echo   按任意键返回主菜单...
+pause >nul
 goto menu
 
 REM ========================================
