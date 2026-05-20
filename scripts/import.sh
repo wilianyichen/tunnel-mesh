@@ -29,6 +29,10 @@ do_import() {
     PEER_PUBKEY=$(echo "$IDENTITY" | grep "^PUBKEY=" | cut -d= -f2-)
     PEER_FP=$(echo "$IDENTITY" | grep "^FINGERPRINT=" | cut -d= -f2)
 
+    # 兼容 Windows 导出的身份卡（无 PUBKEY= 标签，直接 ssh- 开头）
+    [ -z "$PEER_PUBKEY" ] || [ "$PEER_PUBKEY" = "PUBKEY=" ] && \
+        PEER_PUBKEY=$(echo "$IDENTITY" | grep -E "^ssh-(rsa|ed25519|dss|ecdsa) ") 
+
     PEER_TUNNEL_IP="$PEER_IP"
     [ -n "$PEER_PUBLIC_IP" ] && PEER_TUNNEL_IP="$PEER_PUBLIC_IP"
     [ -z "$PEER_NAME" ] && { echo "❌ 无效身份卡"; return; }

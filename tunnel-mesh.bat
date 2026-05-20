@@ -71,6 +71,7 @@ echo NAME=%COMPUTERNAME%
 echo IP=%MY_IP%
 echo PORT=22
 echo USER=%USERNAME%
+echo PUBKEY=
 type "%KEY_FILE%.pub"
 echo ===END===
 echo.
