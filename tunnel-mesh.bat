@@ -170,17 +170,25 @@ echo √ 脚本已生成: !SCRIPT!
 REM 注册 Windows 计划任务（开机自启）
 echo.
 echo 配置开机自启...
-powershell -Command ^
-  "$taskName='Tunnel-%TARGET%';" ^
-  "Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue;" ^
-  "$action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-WindowStyle Hidden -File \"!SCRIPT!\"';" ^
-  "$trigger=New-ScheduledTaskTrigger -AtStartup;" ^
-  "$settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1);" ^
-  "Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force;" ^
-  "Start-ScheduledTask -TaskName $taskName"
 
+REM 生成任务创建脚本
+set SETUP_PS=C:\tunnel-mesh\scripts\setup-%TARGET%.ps1
+(
+echo $taskName='Tunnel-%TARGET%'
+echo $scriptPath='!SCRIPT!'
+echo Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+echo $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-WindowStyle Hidden -File `"$scriptPath`""
+echo $trigger=New-ScheduledTaskTrigger -AtStartup
+echo $settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+echo Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force
+echo Start-ScheduledTask -TaskName $taskName
+echo Write-Host "OK"
+) > "!SETUP_PS!"
+
+powershell -ExecutionPolicy Bypass -File "!SETUP_PS!"
 if !errorlevel! neq 0 (
-    echo 警告：计划任务创建可能失败，请以管理员身份运行
+    echo ⚠ 计划任务创建失败，请检查是否以管理员运行
+    echo   错误详情: 查看 !SETUP_PS!
 )
 
 REM 保存命令到配置
