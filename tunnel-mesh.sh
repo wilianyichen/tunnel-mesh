@@ -1,6 +1,15 @@
 #!/bin/bash
 # Tunnel Mesh 2.0 — 主入口
+# 自动修复换行符，确保 git pull 后即用
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 自愈：检测 CRLF 并自动修复
+if grep -q $'\r' "$0" 2>/dev/null; then
+    echo "检测到 Windows 换行符，自动修复..."
+    find "$SCRIPT_DIR" -name "*.sh" -exec sed -i 's/\r$//' {} \; 2>/dev/null
+    exec bash "$0" "$@"
+fi
 
 source "$SCRIPT_DIR/scripts/lib/detect.sh"
 source "$SCRIPT_DIR/scripts/lib/config.sh"
