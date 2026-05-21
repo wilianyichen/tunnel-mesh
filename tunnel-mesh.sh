@@ -17,6 +17,7 @@ source "$SCRIPT_DIR/scripts/lib/network.sh"
 source "$SCRIPT_DIR/scripts/lib/graph.sh"
 source "$SCRIPT_DIR/scripts/phase1-key.sh"
 source "$SCRIPT_DIR/scripts/phase2-edge.sh"
+source "$SCRIPT_DIR/scripts/phase2-chain.sh"
 source "$SCRIPT_DIR/scripts/phase3-tunnel.sh"
 
 detect_identity

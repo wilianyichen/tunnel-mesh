@@ -150,9 +150,13 @@ EOF
         echo "  有没有一台维持者能同时连你和 $SERVANT？"
         echo "    [1] 有（如 Windows）→ 我来配反向隧道"
         echo "    [2] 没有 → 需要先配中间连接"
+        echo "    [3] 探路链 → 一步步找出中间路径"
         read -p "  选择: " HAS_BRIDGE; HAS_BRIDGE=${HAS_BRIDGE:-1}
 
-        if [ "$HAS_BRIDGE" = "1" ]; then
+        if [ "$HAS_BRIDGE" = "3" ]; then
+            do_chain_discovery "$MASTER" "$SERVANT"
+            return
+        elif [ "$HAS_BRIDGE" = "1" ]; then
             EDGE_TYPE="reverse"
             echo "  → 使用反向隧道 + 外部维持者"
         else
