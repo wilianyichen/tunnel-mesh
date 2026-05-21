@@ -110,11 +110,22 @@ EOF
             fi
         fi
 
-        # 图里也没有 → 需要用户先配置中间节点
+        # 图里也没有 → 问是否有桥接
         echo "  ✗ 图里也没有路径"
-        echo "  你需要先配好中间节点的连接，再回来规划这条边"
-        server_list
-        return
+        echo ""
+        echo "  有没有一台维持者能同时连你和 $SERVANT？"
+        echo "    [1] 有（如 Windows）→ 我来配反向隧道"
+        echo "    [2] 没有 → 需要先配中间连接"
+        read -p "  选择: " HAS_BRIDGE; HAS_BRIDGE=${HAS_BRIDGE:-1}
+
+        if [ "$HAS_BRIDGE" = "1" ]; then
+            EDGE_TYPE="reverse"
+            echo "  → 使用反向隧道 + 外部维持者"
+        else
+            echo "  你需要先配好中间节点的连接，再回来规划这条边"
+            server_list
+            return
+        fi
     fi
 
     # Step 5: 如果是 reverse → 问维持者
