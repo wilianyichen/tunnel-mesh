@@ -77,36 +77,70 @@ do_edge_plan() {
         # ── 双方不能互连 → 搜索整个图找路径 ──
         echo ""
         echo "  双方不能直连。在图里搜索路径..."
-        local path_result=$(graph_path "$MASTER" "$SERVANT")
-        local path_ok=$(echo "$path_result" | python3 -c "import json,sys;print(json.load(sys.stdin).get('ok',False))" 2>/dev/null)
+
+        # 从图中找 multi-hop 路径
+        local path_json=$(graph_path "$MASTER" "$SERVANT")
+        local path_ok=$(echo "$path_json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('ok',False))" 2>/dev/null)
 
         if [ "$path_ok" = "True" ]; then
-            local path_str hops jumps
-            path_str=$(echo "$path_result" | python3 -c "import json,sys;print(' → '.join(json.load(sys.stdin)['path']))" 2>/dev/null)
-            hops=$(echo "$path_result" | python3 -c "import json,sys;print(json.load(sys.stdin)['hops'])" 2>/dev/null)
+            local path_str hops nodes
+            path_str=$(echo "$path_json" | python3 -c "import json,sys;print(' → '.join(json.load(sys.stdin)['path']))" 2>/dev/null)
+            hops=$(echo "$path_json" | python3 -c "import json,sys;print(json.load(sys.stdin)['hops'])" 2>/dev/null)
+            nodes=$(echo "$path_json" | python3 -c "import json,sys;p=json.load(sys.stdin)['path'];print(' '.join(p[1:-1]))" 2>/dev/null)
 
             echo "  ✓ 找到路径: $path_str ($hops 跳)"
 
-            if [ "$hops" -gt 1 ]; then
-                jumps=$(echo "$path_result" | python3 -c "import json,sys;p=json.load(sys.stdin)['path'];print(','.join(p[1:-1]))" 2>/dev/null)
-                mkdir -p ~/.ssh
-                if ! grep -q "Host $SERVANT" ~/.ssh/config 2>/dev/null; then
-                    cat >> ~/.ssh/config << EOF
+            if [ "$hops" -eq 1 ]; then
+                # 直连 → forward
+                EDGE_TYPE="forward"
+            else
+                # 多跳：检查每条中间边是否已存在
+                echo ""
+                echo "  这条路径需要以下中间边:"
+                local missing=0
+                local prev="$MASTER"
+                for node in $nodes "$SERVANT"; do
+                    local eid="${prev}→${node}"
+                    local exists=$(config_json "import json,sys;d=json.load(sys.stdin);print(len([e for e in d.get('edges',[]) if e.get('id','')=='$eid']))" 2>/dev/null)
+                    if [ "0" = "$exists" ]; then
+                        echo "    ✗ $eid (未配置)"
+                        missing=1
+                    else
+                        echo "    ✓ $eid"
+                    fi
+                    prev="$node"
+                done
 
-# Tunnel Mesh - $SERVANT (多跳: $path_str)
+                if [ $missing -eq 1 ]; then
+                    echo ""
+                    echo "  部分中间边未配置。你需要先在对应的中间服务器上"
+                    echo "  运行边规划，配置好每一条中间边。"
+                    echo ""
+                    echo "  已配置的边可以直接用 ProxyJump。"
+                    server_list
+                    return
+                else
+                    # 全部中间边已配好 → 直接 ProxyJump
+                    local jumps=$(echo "$nodes" | tr ' ' ',')
+                    mkdir -p ~/.ssh
+                    if ! grep -q "Host $SERVANT" ~/.ssh/config 2>/dev/null; then
+                        cat >> ~/.ssh/config << EOF
+
+# Tunnel Mesh - $SERVANT (多跳 ProxyJump: $jumps)
 Host $SERVANT
     HostName $SERVANT
     ProxyJump $jumps
     User ${SUSER:-root}
     StrictHostKeyChecking no
 EOF
-                    chmod 600 ~/.ssh/config
+                        chmod 600 ~/.ssh/config
+                    fi
+                    edge_add "$MASTER" "$SERVANT" "proxyjump" "0" "" ""
+                    echo ""
+                    echo "  ✓ 多跳连接已配置: ssh $SERVANT"
+                    echo "  路径: $path_str"
+                    return
                 fi
-                edge_add "$MASTER" "$SERVANT" "proxyjump" "0" "" ""
-                echo ""
-                echo "  ✓ 多跳连接已配置: ssh $SERVANT"
-                echo "  路径: $path_str"
-                return
             fi
         fi
 
