@@ -74,8 +74,47 @@ do_edge_plan() {
         EDGE_TYPE="reverse"
         echo "  → 对方能连你，你不能连对方 → 反向隧道"
     else
-        EDGE_TYPE="reverse"
-        echo "  → 双方不能互连 → 需要桥接维持者（反向隧道）"
+        # ── 双方不能互连 → 搜索整个图找路径 ──
+        echo ""
+        echo "  双方不能直连。在图里搜索路径..."
+        local path_result=$(graph_path "$MASTER" "$SERVANT")
+        local path_ok=$(echo "$path_result" | python3 -c "import json,sys;print(json.load(sys.stdin).get('ok',False))" 2>/dev/null)
+
+        if [ "$path_ok" = "True" ]; then
+            local path_str hops jumps
+            path_str=$(echo "$path_result" | python3 -c "import json,sys;print(' → '.join(json.load(sys.stdin)['path']))" 2>/dev/null)
+            hops=$(echo "$path_result" | python3 -c "import json,sys;print(json.load(sys.stdin)['hops'])" 2>/dev/null)
+
+            echo "  ✓ 找到路径: $path_str ($hops 跳)"
+
+            if [ "$hops" -gt 1 ]; then
+                jumps=$(echo "$path_result" | python3 -c "import json,sys;p=json.load(sys.stdin)['path'];print(','.join(p[1:-1]))" 2>/dev/null)
+                mkdir -p ~/.ssh
+                if ! grep -q "Host $SERVANT" ~/.ssh/config 2>/dev/null; then
+                    cat >> ~/.ssh/config << EOF
+
+# Tunnel Mesh - $SERVANT (多跳: $path_str)
+Host $SERVANT
+    HostName $SERVANT
+    ProxyJump $jumps
+    User ${SUSER:-root}
+    StrictHostKeyChecking no
+EOF
+                    chmod 600 ~/.ssh/config
+                fi
+                edge_add "$MASTER" "$SERVANT" "proxyjump" "0" "" ""
+                echo ""
+                echo "  ✓ 多跳连接已配置: ssh $SERVANT"
+                echo "  路径: $path_str"
+                return
+            fi
+        fi
+
+        # 图里也没有 → 需要用户先配置中间节点
+        echo "  ✗ 图里也没有路径"
+        echo "  你需要先配好中间节点的连接，再回来规划这条边"
+        server_list
+        return
     fi
 
     # Step 5: 如果是 reverse → 问维持者
