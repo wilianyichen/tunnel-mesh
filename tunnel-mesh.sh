@@ -18,6 +18,7 @@ source "$SCRIPT_DIR/scripts/lib/graph.sh"
 source "$SCRIPT_DIR/scripts/phase1-key.sh"
 source "$SCRIPT_DIR/scripts/phase2-edge.sh"
 source "$SCRIPT_DIR/scripts/phase2-chain.sh"
+source "$SCRIPT_DIR/scripts/port-check.sh"
 source "$SCRIPT_DIR/scripts/phase3-tunnel.sh"
 
 detect_identity
@@ -35,6 +36,7 @@ while true; do
     echo "║  🗑  [5] 删除       — 删节点或边                  ║"
     echo "║  🔍 [6] 探寻路径   — 查看到目标的跳转            ║"
     echo "║  ⚙️  [7] SSH管理    — 管理 ~/.ssh/config          ║"
+    echo "║  🔌 [8] 端口检测   — 查看可用端口                ║"
     echo "║  ❓ [?] 帮助       — 各功能详解                   ║"
     echo "║  ❌ [Q] 退出                                     ║"
     echo "╚══════════════════════════════════════════════════╝"
@@ -67,6 +69,7 @@ while true; do
             grep "^Host " ~/.ssh/config 2>/dev/null | grep -v "^#"
             read -p "按回车继续..."
             ;;
+        8) do_port_check ;;
         "?")
             echo ""
             echo "════════════════════════════════════════"

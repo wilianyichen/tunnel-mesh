@@ -11,8 +11,9 @@ do_chain_discovery() {
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
 
-    # 统一端口
-    echo -n "统一端口 [4001]: "; read PORT; PORT=${PORT:-4001}
+    # 自动找可用端口
+    PORT=$(chain_find_port)
+    echo -n "统一端口 [$PORT]: "; read INPUT_PORT; PORT=${INPUT_PORT:-$PORT}
 
     # 清空链
     HOPS=()
