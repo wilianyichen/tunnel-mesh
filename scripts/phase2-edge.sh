@@ -1,5 +1,7 @@
 #!/bin/bash
 # phase2-edge.sh - 边规划：交互式构建单条边
+set -o pipefail
+# shellcheck disable=SC2034
 
 do_edge_plan() {
     echo ""
@@ -32,17 +34,38 @@ do_edge_plan() {
     read -p "  仆服务器名称: " SERVANT
 
     if server_exists "$SERVANT"; then
-        # 从图里取
-        SI=$(config_json "import json,sys;d=json.load(sys.stdin);s=d['servers']['$SERVANT'];print(s['ip'],s.get('port',22),s.get('user','root'),s.get('public_ip',''))" 2>/dev/null)
-        read SIP SPORT SUSER SPUBIP <<< "$SI"
+        # 从图里取 — 安全：通过 config_get
+        SINFO=$(config_get "servers.$SERVANT" 2>/dev/null)
+        SIP=$(echo "$SINFO" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('ip','?'))" 2>/dev/null)
+        SPORT=$(echo "$SINFO" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('port',22))" 2>/dev/null)
+        SUSER=$(echo "$SINFO" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('user','root'))" 2>/dev/null)
+        SPUBIP=$(echo "$SINFO" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('public_ip',''))" 2>/dev/null)
         echo "  ✓ 已知: $SERVANT ($SIP:$SPORT)"
     else
-        echo "  新服务器，请输入信息:"
-        read -p "  IP地址: " SIP
-        read -p "  SSH端口 [22]: " SPORT; SPORT=${SPORT:-22}
-        read -p "  用户名 [root]: " SUSER; SUSER=${SUSER:-root}
-        read -p "  有公网IP吗？[无]: " SPUBIP
-        server_add "$SERVANT" "$SIP" "$SPORT" "$SUSER" "" ""
+        echo "  新服务器，请选择输入方式:"
+        echo "    [1] 手动输入"
+        echo "    [P] 粘贴身份卡"
+        read -p "  选择 [1]: " INPUT_MODE; INPUT_MODE=${INPUT_MODE:-1}
+
+        if [ "$INPUT_MODE" = "P" ] || [ "$INPUT_MODE" = "p" ]; then
+            echo ""
+            echo "  粘贴身份卡（Ctrl+D 回车）:"
+            echo "  ──────────────────────────"
+            if ! parse_identity_card; then return; fi
+            SERVANT="$_ID_NAME"
+            SIP="$_ID_IP"
+            SPORT="${_ID_PORT:-22}"
+            SUSER="${_ID_USER:-root}"
+            SPUBIP="$_ID_PUBLIC_IP"
+            server_add "$SERVANT" "$SIP" "$SPORT" "$SUSER" "" "$_ID_PUBKEY"
+            echo "  ✓ 已添加: $SERVANT ($SIP:$SPORT)"
+        else
+            read -p "  IP地址: " SIP
+            read -p "  SSH端口 [22]: " SPORT; SPORT=${SPORT:-22}
+            read -p "  用户名 [root]: " SUSER; SUSER=${SUSER:-root}
+            read -p "  有公网IP吗？[无]: " SPUBIP
+            server_add "$SERVANT" "$SIP" "$SPORT" "$SUSER" "" ""
+        fi
     fi
 
     # Step 3: 检测连通性
@@ -233,4 +256,210 @@ EOF
         echo "  ✓ 正向连接已配置: ssh $SERVANT"
         timeout 5 ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$SERVANT" "hostname" 2>/dev/null && echo "  ✓ 连接测试成功"
     fi
+}
+
+# 基于可达报告智能建边
+do_reachability_edge() {
+    echo ""
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║  可达报告驱动建边                                 ║"
+    echo "║  粘贴 --cmd reachability-merge 的 JSON 输出       ║"
+    echo "╚══════════════════════════════════════════════════╝"
+    echo ""
+    echo "  如何获得合并报告:"
+    echo "  1. 每台机器: tunnel-mesh.sh --cmd reachability > r.json"
+    echo "  2. 本机:     tunnel-mesh.sh --cmd reachability-merge r*.json"
+    echo "  3. 粘贴下面的 JSON 输出（Ctrl+D 回车）"
+    echo ""
+    echo "──────────────────────────────────────"
+    echo "  粘贴合并报告 JSON"
+    echo "──────────────────────────────────────"
+
+    local json_input
+    json_input=$(cat)
+
+    # 验证是有效的 JSON 且包含 edges
+    if ! echo "$json_input" | python3 -c "import json,sys;d=json.load(sys.stdin);d['edges']" 2>/dev/null; then
+        echo "  ❌ 无效的合并报告，请确认粘贴完整"
+        return 1
+    fi
+
+    # 解析并显示推荐
+    echo ""
+    echo "──────────────────────────────────────"
+    echo "  推荐边分析"
+    echo "──────────────────────────────────────"
+
+    local analysis
+    analysis=$(echo "$json_input" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+edges = d.get('edges', [])
+
+fw = [e for e in edges if e['type'] == 'forward']
+rv = [e for e in edges if e['type'] == 'reverse']
+ch = [e for e in edges if e['type'] == 'chained']
+un = [e for e in edges if e['type'] == 'unreachable']
+
+seen = set()
+def dedup(elist):
+    result = []
+    for e in elist:
+        key = tuple(sorted([e['from'], e['to']]))
+        if key not in seen:
+            seen.add(key)
+            result.append(e)
+    return result
+
+fw = dedup(fw)
+rv = dedup(rv)
+ch = dedup(ch)
+un = dedup(un)
+
+for e in fw:
+    print(f\"  ✓ 正向 {e['from']} ⇄ {e['to']}\")
+for e in rv:
+    runner = e.get('tunnel_runner', '?')
+    tun_on = e.get('tunnel_on', '?')
+    print(f\"  → 反向 {e['from']} → {e['to']} | 维持者={runner} 在 {tun_on} 上开 ssh -R\")
+for e in ch:
+    print(f\"  🔗 链式 {e['from']} → {e['to']} | 桥={e.get('bridge','?')}\")
+for e in un:
+    print(f\"  ✗ 不可达 {e['from']} → {e['to']}\")
+")
+
+    echo "$analysis"
+
+    read -p "  是否基于推荐创建边？[y/N]: " CHOICE
+    if [ "$CHOICE" != "y" ] && [ "$CHOICE" != "Y" ]; then
+        echo "  已跳过"
+        return
+    fi
+
+    local created=0
+    while IFS= read -r edge_json; do
+        [ -z "$edge_json" ] && continue
+        local etype efrom eto
+        etype=$(echo "$edge_json" | python3 -c "import json,sys;print(json.load(sys.stdin)['type'])")
+        efrom=$(echo "$edge_json" | python3 -c "import json,sys;print(json.load(sys.stdin)['from'])")
+        eto=$(echo "$edge_json" | python3 -c "import json,sys;print(json.load(sys.stdin)['to'])")
+
+        # 跳过已存在的边
+        if echo "$CONFIG" | python3 -c "
+import json,sys
+edges=json.load(sys.stdin).get('edges',[])
+for e in edges:
+    if e.get('from')=='$efrom' and e.get('to')=='$eto':
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+            echo "  ⏭ 跳过（已存在）: $efrom → $eto"
+            continue
+        fi
+
+        case "$etype" in
+            forward)
+                echo ""
+                echo "  创建正向直连: $efrom → $eto"
+                if ! server_exists "$eto"; then
+                    local eto_ip eto_port
+                    eto_ip=$(echo "$json_input" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(d.get('nodes',{}).get('$eto',{}).get('ip','?'))")
+                    eto_port=$(echo "$json_input" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(d.get('nodes',{}).get('$eto',{}).get('port',22))")
+                    read -p "  输入 $eto 的 IP [$eto_ip]: " INPUT_IP; INPUT_IP=${INPUT_IP:-$eto_ip}
+                    read -p "  输入 $eto 的用户名 [root]: " INPUT_USER; INPUT_USER=${INPUT_USER:-root}
+                    server_add "$eto" "$INPUT_IP" "${eto_port:-22}" "$INPUT_USER" "" ""
+                fi
+
+                if [ "$efrom" = "$HOSTNAME" ]; then
+                    local s_ip s_port s_user
+                    s_info=$(config_get "servers.$eto" 2>/dev/null)
+                    s_ip=$(echo "$s_info" | python3 -c "import json,sys;print(json.load(sys.stdin).get('ip','?'))" 2>/dev/null)
+                    s_port=$(echo "$s_info" | python3 -c "import json,sys;print(json.load(sys.stdin).get('port',22))" 2>/dev/null)
+                    s_user=$(echo "$s_info" | python3 -c "import json,sys;print(json.load(sys.stdin).get('user','root'))" 2>/dev/null)
+                    mkdir -p ~/.ssh
+                    if ! grep -q "Host $eto" ~/.ssh/config 2>/dev/null; then
+                        cat >> ~/.ssh/config << EOF
+
+# Tunnel Mesh - $eto (直连)
+Host $eto
+    HostName $s_ip
+    Port ${s_port:-22}
+    User ${s_user:-root}
+    StrictHostKeyChecking no
+EOF
+                        chmod 600 ~/.ssh/config
+                    fi
+                fi
+                edge_add "$efrom" "$eto" "forward" "0" "" ""
+                created=$((created + 1))
+                echo "  ✓ 正向边已创建"
+                ;;
+            reverse)
+                local erunner etunnel_on
+                erunner=$(echo "$edge_json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('tunnel_runner','?'))")
+                etunnel_on=$(echo "$edge_json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('tunnel_on','?'))")
+                local rport
+                rport=$(port_allocate)
+                echo ""
+                echo "  创建反向隧道: $efrom → $eto"
+                echo "  维持者: $erunner (运行 ssh -R $rport:localhost:22 $etunnel_on)"
+                echo "  本机将通过 localhost:$rport 访问 $eto"
+
+                mkdir -p ~/.ssh
+                if ! grep -q "Host $eto" ~/.ssh/config 2>/dev/null; then
+                    cat >> ~/.ssh/config << EOF
+
+# Tunnel Mesh - $eto (反向隧道 :$rport)
+Host $eto
+    HostName localhost
+    Port $rport
+    User root
+    StrictHostKeyChecking no
+    HostKeyAlias $eto
+EOF
+                    chmod 600 ~/.ssh/config
+                fi
+                edge_add "$efrom" "$eto" "reverse" "$rport" "ssh -R $rport:localhost:22 $etunnel_on" "$erunner"
+                created=$((created + 1))
+                echo "  ✓ 反向边已创建"
+                echo "  ⚠ $erunner 需要运行: ssh -R $rport:localhost:22 $etunnel_on"
+                ;;
+            chained)
+                local ebridge
+                ebridge=$(echo "$edge_json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('bridge','?'))")
+                echo ""
+                echo "  🔗 链式边: $efrom → $eto (桥: $ebridge)"
+                echo "  链式边需要多跳，建议使用递归建边（Phase 2 [2]）"
+                read -p "  是否现在创建（仅记录逻辑边）？[y/N]: " CHAIN_CHOICE
+                if [ "$CHAIN_CHOICE" = "y" ] || [ "$CHAIN_CHOICE" = "Y" ]; then
+                    edge_add "$efrom" "$eto" "chained" "0" "" ""
+                    created=$((created + 1))
+                    echo "  ✓ 链式边已记录（物理链路需手动配置）"
+                fi
+                ;;
+            *)
+                echo "  ⏭ 跳过: $efrom → $eto (类型=$etype)"
+                ;;
+        esac
+    done < <(echo "$json_input" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+edges=d.get('edges',[])
+seen=set()
+for e in edges:
+    key=tuple(sorted([e['from'],e['to']]))
+    if key not in seen:
+        seen.add(key)
+        print(json.dumps(e))
+")
+
+    echo ""
+    echo "──────────────────────────────────────"
+    echo "  共创建 $created 条边"
 }

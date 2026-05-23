@@ -1,5 +1,6 @@
 #!/bin/bash
 # ssh-config.sh - 管理 ~/.ssh/config 中的服务器连接
+set -o pipefail
 
 do_ssh_config() {
     while true; do
@@ -77,13 +78,11 @@ ssh_add() {
     read -p "SSH 端口 [22]: " PORT; PORT=${PORT:-22}
     read -p "用户名 [root]: " USER; USER=${USER:-root}
 
-    if grep -q "Host $NAME" ~/.ssh/config 2>/dev/null; then
+    if grep -q "^Host $NAME\$" ~/.ssh/config 2>/dev/null; then
         echo "⚠ $NAME 已存在"
         read -p "覆盖？[y/N]: " OV
         [ "$OV" != "y" ] && [ "$OV" != "Y" ] && return
-        # 删除旧块
-        sed -i "/^Host $NAME\$/,/^$/d" ~/.ssh/config 2>/dev/null
-        sed -i "/^Host $NAME\$/,/^Host /{ /^Host /!d; }" ~/.ssh/config 2>/dev/null
+        ssh_config_remove_host "$NAME"
     fi
 
     {
@@ -107,7 +106,7 @@ ssh_remove() {
     read -p "输入要删除的名称: " NAME
     [ -z "$NAME" ] && return
 
-    if ! grep -q "Host $NAME" ~/.ssh/config 2>/dev/null; then
+    if ! grep -q "^Host $NAME\$" ~/.ssh/config 2>/dev/null; then
         echo "未找到: $NAME"
         return
     fi
@@ -116,7 +115,18 @@ ssh_remove() {
     [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ] && return
 
     cp ~/.ssh/config ~/.ssh/config.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null
-    sed -i "/^Host $NAME\$/,/^$/d" ~/.ssh/config 2>/dev/null
+
+    awk -v host="$NAME" '
+    BEGIN { skip = 0 }
+    /^Host / {
+        if ($2 == host) { skip = 1; next }
+        else { skip = 0 }
+    }
+    !skip { print }
+    ' ~/.ssh/config > ~/.ssh/config.tmp
+
+    mv ~/.ssh/config.tmp ~/.ssh/config
+    chmod 600 ~/.ssh/config 2>/dev/null
     echo "✓ 已删除: $NAME"
 }
 

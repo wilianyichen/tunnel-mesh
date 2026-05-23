@@ -1,4 +1,4 @@
-# Tunnel Mesh Windows
+# Tunnel Mesh Windows — 信任阶段模型
 param()
 $ScriptDir = Split-Path $0
 $TunnelDir = "C:\tunnel-mesh"
@@ -8,20 +8,20 @@ $SshDir = "$env:USERPROFILE\.ssh"
 ni -Force -ItemType Directory $ScriptsDir, $TunnelDir, $ConfigDir, $SshDir | Out-Null
 
 $KeyFile = "$SshDir\id_ed25519"
-if (-not (Test-Path $KeyFile)) { ssh-keygen -t ed25519 -f $KeyFile -N '""' -C "windows@tunnel" 2>$null }
+if (-not (Test-Path $KeyFile)) { $empty = ""; ssh-keygen -t ed25519 -f $KeyFile -N $empty -C "windows@tunnel" 2>$null }
 
 function Show-Menu {
     Clear-Host; Write-Host ""
-    Write-Host "╔════════════════════════════════════════╗"
-    Write-Host "║   Tunnel Mesh (Windows)                ║"
-    Write-Host "╠════════════════════════════════════════╣"
-    Write-Host "║  [1] 导入隧道命令 (粘贴 ssh -R ...)    ║"
-    Write-Host "║  [2] 导出身份卡 (给 Linux 部署公钥)    ║"
-    Write-Host "║  [3] 查看隧道状态                     ║"
-    Write-Host "║  [4] 启动/停止/删除                   ║"
-    Write-Host "║  [5] 测试连接                         ║"
-    Write-Host "║  [Q] 退出                             ║"
-    Write-Host "╚════════════════════════════════════════╝"
+    Write-Host "╔══════════════════════════════════════════════════╗"
+    Write-Host "║   Tunnel Mesh (Windows)                          ║"
+    Write-Host "╠══════════════════════════════════════════════════╣"
+    Write-Host "║  [1] 建立加密信任 — 导出身份卡                   ║"
+    Write-Host "║  [2] 建立网络信任 — 导入隧道命令                 ║"
+    Write-Host "║  [3] 维持信任     — 查看/启动/停止隧道           ║"
+    Write-Host "║  [4] 审视信任     — 测试连接                     ║"
+    Write-Host "║  [5] 撤销信任     — 删除隧道                     ║"
+    Write-Host "║  [Q] 退出                                        ║"
+    Write-Host "╚══════════════════════════════════════════════════╝"
 }
 
 function Import-Tunnel {
@@ -55,12 +55,18 @@ while (`$true) {
 }
 
 function Export-Identity {
-    Clear-Host; Write-Host "`n===IDENTITY==="
-    Write-Host "NAME=$env:COMPUTERNAME"
+    Clear-Host
+    $name = $env:COMPUTERNAME
     $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object InterfaceAlias -notmatch 'Loopback|vEthernet' | Select-Object -First 1).IPAddress
-    Write-Host "IP=$ip"; Write-Host "PORT=22"; Write-Host "USER=$env:USERNAME"
-    Write-Host "PUBKEY="; Get-Content "$KeyFile.pub"; Write-Host "===END==="
-    Write-Host "`n复制到 Linux: bash tunnel-mesh.sh → [1]密钥 → [2]部署"
+    $pubkey = Get-Content "$KeyFile.pub"
+    $raw = "NAME=$name`nIP=$ip`nPORT=22`nUSER=$env:USERNAME`nPUBKEY=$pubkey"
+    $checksum = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($raw))).Replace("-","").ToLower()
+
+    Write-Host "`n===IDENTITY v1==="
+    Write-Host $raw
+    Write-Host "CHECKSUM=sha256:$checksum"
+    Write-Host "===END==="
+    Write-Host "`n复制到 Linux: bash tunnel-mesh.sh → [1]建立加密信任 → [2]部署公钥"
     Pause
 }
 
@@ -73,12 +79,25 @@ function Show-Status {
 }
 
 function Manage-Tunnel {
-    Clear-Host; Write-Host "`n[1]启动全部 [2]停止全部 [3]删除某个"
+    Clear-Host; Write-Host "`n[1]启动全部 [2]停止全部 [B]返回"
     $c = Read-Host
     switch ($c) {
         '1' { Get-ScheduledTask -TaskPath '\' | Where-Object { $_.TaskName -like 'Tunnel-*' } | ForEach-Object { Start-ScheduledTask -TaskName $_.TaskName; Write-Host "√ $($_.TaskName)" } }
         '2' { Get-ScheduledTask -TaskPath '\' | Where-Object { $_.TaskName -like 'Tunnel-*' } | ForEach-Object { Stop-ScheduledTask -TaskName $_.TaskName; Write-Host "√ $($_.TaskName)" } }
-        '3' { Get-ScheduledTask -TaskPath '\' | Where-Object { $_.TaskName -like 'Tunnel-*' } | Select-Object TaskName, State | Format-Table -AutoSize; $n = Read-Host "删除哪个"; if ($n) { Stop-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName $n -Confirm:$false -ErrorAction SilentlyContinue; Remove-Item "$ScriptsDir\tunnel-*","$ScriptsDir\run-*" -ErrorAction SilentlyContinue; Write-Host "√ 已删除" } }
+    }
+    Pause
+}
+
+function Remove-Tunnel {
+    Clear-Host
+    try { Get-ScheduledTask -TaskPath '\' | Where-Object { $_.TaskName -like 'Tunnel-*' } | Select-Object TaskName, State | Format-Table -AutoSize } catch { Write-Host "  暂无隧道"; Pause; return }
+    $n = Read-Host "`n输入要删除的隧道名 (如 Tunnel-2201)"
+    if ($n) {
+        Stop-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $n -Confirm:$false -ErrorAction SilentlyContinue
+        $port = $n -replace 'Tunnel-',''
+        Remove-Item "$ScriptsDir\tunnel-$port.ps1","$ScriptsDir\run-$port.bat","$ConfigDir\tunnel-$port.cmd" -ErrorAction SilentlyContinue
+        Write-Host "√ $n 已删除"
     }
     Pause
 }
@@ -87,5 +106,13 @@ function Pause { Read-Host "`n按回车继续" | Out-Null }
 
 while ($true) {
     Show-Menu; $c = Read-Host "选择"
-    switch ($c) { '1' { Import-Tunnel } '2' { Export-Identity } '3' { Show-Status } '4' { Manage-Tunnel } '5' { $h = Read-Host "主机名"; ssh -o ConnectTimeout=5 $h "echo OK" 2>$null; if ($LASTEXITCODE -eq 0) { Write-Host "√ 连通" } else { Write-Host "×" }; Pause } 'q' { exit } 'Q' { exit } }
+    switch ($c) {
+        '1' { Export-Identity }
+        '2' { Import-Tunnel }
+        '3' { Show-Status; Manage-Tunnel }
+        '4' { $h = Read-Host "主机名"; ssh -o ConnectTimeout=5 $h "echo OK" 2>$null; if ($LASTEXITCODE -eq 0) { Write-Host "√ 连通" } else { Write-Host "×" }; Pause }
+        '5' { Remove-Tunnel }
+        'q' { exit }
+        'Q' { exit }
+    }
 }

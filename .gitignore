@@ -20,8 +20,17 @@ Thumbs.db
 .idea/
 *.swp
 
+# 备份文件
+*.bak
+*.bak.*
+
 # 敏感信息
 *.pem
 *.key
 id_*
 known_hosts
+
+# 测试/临时
+tmp/
+temp/
+*.tmp
