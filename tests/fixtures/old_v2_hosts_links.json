@@ -1,0 +1,1 @@
+{"hosts":{"aliyun":{"HostName":"1.2.3.4","Port":22}},"links":{"a-b":{"from":"a","to":"b"}}}

@@ -2,8 +2,30 @@
 """Safe JSON operations for config.json. All user data passed via argv, never interpolated into code."""
 import json, sys, os
 
+CONFIG_PATH = os.path.expanduser("~/.tunnel-mesh/config.json")
+
+
 def load():
+    """读取 config.json，容忍空文件/JSON错误/无servers/servers值缺name字段"""
+    try:
+        with open(CONFIG_PATH) as f:
+            raw = f.read().strip()
+            d = json.loads(raw) if raw else {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        d = {}
+    if not isinstance(d, dict) or "servers" not in d:
+        d = {"servers": {}, "edges": [], "ports": {"used": [], "next": 2201}}
+    # 回填缺失的 name 字段（旧版 server_add 未写入）
+    for key, val in d.get("servers", {}).items():
+        if isinstance(val, dict) and "name" not in val:
+            val["name"] = key
+    return d
+
+
+def load_stdin():
+    """从 stdin 读取 JSON（保持原有行为，用于管道场景）"""
     return json.load(sys.stdin)
+
 
 def emit(d):
     print(json.dumps(d, indent=2))

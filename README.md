@@ -1,89 +1,128 @@
 # Tunnel Mesh
 
-> 几台分散在各处的 Linux 服务器，自动算出最短路径，通过 SSH 隧道彼此连接。
+> 几台分散在各处的服务器，自动算出最优连接路径，通过 SSH 隧道彼此连通。
+> 支持 NAT/防火墙穿透、多跳链式跳转、ProxyJump 中转，一键部署为持久化 systemd 服务。
 
 ## 安装
 
 ```bash
-# 方式 1: 一键安装
-curl -sSL https://raw.githubusercontent.com/wilianyichen/tunnel-mesh/main/install.sh | bash
+# 在线安装
+curl -fsSL https://raw.githubusercontent.com/wilianyichen/tunnel-mesh/main/install.sh | bash
 
-# 方式 2: 手动
-git clone https://github.com/wilianyichen/tunnel-mesh.git
-cd tunnel-mesh && bash tunnel-mesh.sh
+# 或手动克隆
+git clone https://github.com/wilianyichen/tunnel-mesh.git ~/tunnel-mesh
+cd ~/tunnel-mesh && bash tunnel-mesh.sh
 ```
 
-**依赖**: `python3`, `ssh`（系统自带）, `bash 4+`
+**依赖**: `python3`, `ssh`, `bash 4+`（Linux/macOS/Windows Git Bash）
 
-## 30 秒快速开始
+## 60 秒快速开始
+
+以下是一个三节点组网场景：**node3**（内网）↔ **aliyun**（公网）↔ **windows**（内网）。
 
 ```bash
-# 1. 在服务器 A 上生成密钥，获取"身份卡"
-bash tunnel-mesh.sh
-→ [1] 建立加密信任 → [1] 生成密钥 + 导出身份卡
-# 复制输出的身份卡
+# 1. 每台机器生成"身份卡"（SSH 公钥 + 元信息）
+tunnel-mesh --cmd identity          # 查看当前节点名
+# 进入交互菜单 → [1] 加密信任 → [1] 生成密钥
+# 复制输出的 ===IDENTITY v1=== 块
 
-# 2. 在服务器 B 上部署 A 的公钥
-bash tunnel-mesh.sh
-→ [1] 建立加密信任 → [2] 部署公钥
-# 粘贴 A 的身份卡
+# 2. 收集身份卡到主控机器，批量导入
+cat node3.card aliyun.card windows.card | tunnel-mesh --cmd import
+# ✓ 导入完成
 
-# 3. 回到 A，建立连接
-→ [2] 建立网络信任 → [2] 递归建边
-# 主=本机, 仆=B, 自动检测网络方向，按提示操作
+# 3. 每台机器运行网络可达探测
+tunnel-mesh --cmd reachability --ports 22,80,443,8080 > node3-reach.json
+# 三台机器各自运行，收集 JSON 报告到一处
 
-# 4. 连接
-ssh B hostname
+# 4. 合并报告 → 查看可达矩阵 + 推荐连接方案
+tunnel-mesh --cmd reachability-merge node3-reach.json aliyun-reach.json windows-reach.json
+# 输出: N×N 可达矩阵、正向直连、反向隧道、ProxyJump 候选
+
+# 5. 一键部署
+tunnel-mesh --cmd apply --dry-run   # 预览
+tunnel-mesh --cmd apply --yes       # 执行
+
+# 6. 日常使用
+ssh node3 hostname                  # 直接连
+tunnel-mesh --cmd status            # 查看隧道状态
+tunnel-mesh --cmd health            # 健康检查
 ```
 
-## 核心概念
+## 核心原理
+
+工具通过 TCP 多端口并行探测，摸清 N 台机器之间的真实网络可达情况，然后自动决策每条连接的最优方案：
+
+| 场景 | 判定条件 | 方案 | 示例 |
+|------|---------|------|------|
+| 正向直连 | A 可达 B 任一端口 | `ssh B` | `ssh aliyun` |
+| 端口切换 | 默认端口 22 被封，其他端口通 | `ssh -p 80 B` | `ssh -p 8080 aliyun` |
+| 反向隧道 | B 完全不可达 A，但 A 可达 B | A 维持 `ssh -R` | node3 在 aliyun 上开端口 |
+| ProxyJump | 双方互不通，但有公共中转 | `ssh -J C B` | `ssh -J aliyun windows` |
+| 链式多跳 | 需经多台中转节点 | 递归建边 | `master→I1→I2→servant` |
+
+**端口池**: 2201-2299，自动分配，冲突检测。
+
+## 命令参考
+
+| 命令 | 说明 |
+|------|------|
+| `server-list` | 列出所有服务器 |
+| `server-add <name> <ip> [port] [user]` | 添加服务器 |
+| `edge-list` | 列出所有边 |
+| `edge-add <from> <to> <type> [port] [cmd] [maintainer]` | 添加边 |
+| `edge-remove <id>` | 删除边 |
+| `reachability [--ports a,b,c]` | 多端口并行 TCP 可达探测 |
+| `reachability-merge <report.json>...` | 合并多机报告，输出推荐边 |
+| `deploy-guide <report.json>...` | 按机器生成部署指南 |
+| `apply [--dry-run\|--yes]` | 部署隧道（systemd + SSH config） |
+| `status` | 查看所有隧道运行状态 |
+| `health` | 健康检查（存活/断开） |
+| `viz` | ASCII 逻辑拓扑图 |
+| `path <from> <to>` | 查询最短路径 |
+| `port-allocate` | 分配下一个可用端口 |
+| `tutorial` | 生成部署教程 markdown |
+| `identity` | 显示当前节点名 |
+| `import` | 从 stdin 批量导入身份卡 |
+
+## 非交互模式
+
+所有命令均支持非 TTY 调用，适合脚本和 `ssh remote '...'` 远程执行：
+
+```bash
+# 远程探测（无需登录交互式菜单）
+ssh node3 'tunnel-mesh reachability > node3-reach.json'
+
+# 裸命令自动转为 --cmd 模式
+ssh aliyun 'tunnel-mesh server-list'
+# 等价于: ssh aliyun 'tunnel-mesh --cmd server-list'
+
+# 管道输入
+echo '{"servers":{...}}' | tunnel-mesh --cmd import
+```
+
+非 TTY 无参数时打印帮助并 exit 0，不会卡在 `read -p`。
+
+## 架构
+
+双层设计：**逻辑图**（谁要连谁）+ **物理连接层**（怎么连过去）。
 
 ```
-config.json（逻辑图）          fabric.json（物理连接层）
-┌──────────────────┐          ┌─────────────────────────┐
-│ servers: 登录目标 │          │ hops: [每跳 ssh -L/-R]  │
-│ edges: [{         │ ────→   │ transit_nodes: 中转服务器 │
-│   fabric_id ──────┤          │ maintainers: [维持者]    │
-│   weight          │          └─────────────────────────┘
-│ }]                │
-└──────────────────┘
+config.json（逻辑图）            fabric.json（物理连接层）
+┌────────────────────┐          ┌─────────────────────────┐
+│ servers: 登录目标  │          │ hops: [每跳 ssh -L/-R]  │
+│ edges: [{          │ ──────→ │ transit_nodes: 中转节点  │
+│   from, to, type,  │          │ maintainers: [维持者]    │
+│   fabric_id, weight│          │ external_maintainers: [] │
+│ }]                 │          └─────────────────────────┘
+│ ports: 端口池      │
+└────────────────────┘
 ```
 
-- **逻辑边**: 主→仆的"可达关系"，含 Dijkstra 权重
-- **物理跳**: 每条逻辑边分解为若干 `ssh -L` / `ssh -R` 跳
-- **中转节点**: 不在逻辑图中，只存在于物理连接层
-- **统一端口**: 整条链路共用同一个端口号，每跳 `上一跳的 localhost:P → 下一跳:22`
+- **config.json** 的 `servers` 只存登录目标，中转节点隔离在 fabric.json
+- **边** 含 `weight` 字段（forward=1.0, reverse=1.5），供 Dijkstra 最短路径算法
+- **fabric.json** 记录每一条逻辑边对应的物理跳序列、维持者、持久化方式
 
-## 5 个 Phase
-
-| Phase | 功能 | 说明 |
-|-------|------|------|
-| 1. 建立加密信任 | 生成密钥 + 交换身份卡 | SSH key pair + SHA256 校验 |
-| 2. 建立网络信任 | 递归建边 | 从主出发，沿网络可达方向递归直到触达仆 |
-| 3. 维持信任 | Fabric 管理中心 | 查看/启停隧道、健康检查、生成部署指南 |
-| 4. 审视信任 | 双层拓扑 + 路径探寻 | 逻辑图 + 物理图；ProxyJump / 嵌套 SSH |
-| 5. 撤销信任 | 删边 + 释放端口 | 自动清理 SSH config、fabric 和端口池 |
-
-## 三种典型场景
-
-### 场景 1: 双方都能互连（最简单）
-```
-master ────直连──→ servant
-```
-正向边，权重 1.0。生成标准 SSH config。
-
-### 场景 2: 一方能连另一方（反向隧道）
-```
-master ←──ssh -R── servant（运行隧道）
-```
-servant 运行 `ssh -R` 在 master 上打开端口。
-
-### 场景 3: 双方不能互连，引入中间节点
-```
-master ←──ssh -R── Windows ──ssh -L──→ servant
-         (跳1)              (跳2)
-```
-Windows 同时维持两条隧道，master 通过 ProxyCommand 链式到达 servant。
+详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## 文档
 
@@ -94,7 +133,11 @@ Windows 同时维持两条隧道，master 通过 ProxyCommand 链式到达 serva
 
 ## 贡献
 
-Bug 报告和 PR 欢迎。提交前请确保 `shellcheck` 通过。
+Bug 报告和 PR 欢迎。提交前请确保测试通过：
+
+```bash
+python3 tests/test_smoke.py -v
+```
 
 ## 许可证
 

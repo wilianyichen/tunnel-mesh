@@ -1,0 +1,1 @@
+{"servers":{"node3":{"ip":"10.0.0.1","port":22},"aliyun":{"ip":"1.2.3.4","port":22}},"edges":[{"id":"node3→aliyun","from":"node3","to":"aliyun","type":"forward","tunnel_port":0}]}

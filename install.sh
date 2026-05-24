@@ -39,13 +39,24 @@ echo "python3 ✓  $(python3 --version)"
 echo "ssh      ✓  $(ssh -V 2>&1 | head -1)"
 
 # ---- 安装 ----
+# 非交互模式：跳过确认，直接覆盖
+if [ ! -t 0 ]; then
+    AUTO_INSTALL=true
+else
+    AUTO_INSTALL=false
+fi
+
 if [ -d "$INSTALL_DIR" ]; then
     echo ""
     echo "安装目录 $INSTALL_DIR 已存在"
-    read -p "覆盖安装？[y/N]: " yn
-    if [ "$yn" != "y" ] && [ "$yn" != "Y" ]; then
-        echo "已取消"
-        exit 0
+    if [ "$AUTO_INSTALL" = true ]; then
+        echo "非交互模式：自动覆盖安装"
+    else
+        read -p "覆盖安装？[y/N]: " yn
+        if [ "$yn" != "y" ] && [ "$yn" != "Y" ]; then
+            echo "已取消"
+            exit 0
+        fi
     fi
     # 备份旧配置
     ts=$(date +%Y%m%d-%H%M%S)
@@ -92,8 +103,12 @@ if ! echo "$PATH" | tr ':' '\n' | grep -Fxq "$BIN_DIR"; then
     echo ""
     echo "⚠ $BIN_DIR 不在 PATH 中"
     echo ""
-    read -p "  自动追加到 ~/.bashrc？[Y/n]: " addpath
-    if [ "$addpath" != "n" ] && [ "$addpath" != "N" ]; then
+    if [ "$AUTO_INSTALL" = true ]; then
+        echo "非交互模式：自动追加到 shell rc"
+    else
+        read -p "  自动追加到 ~/.bashrc？[Y/n]: " addpath
+    fi
+    if [ "$AUTO_INSTALL" = true ] || { [ "$addpath" != "n" ] && [ "$addpath" != "N" ]; }; then
         for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
             if [ -f "$rc" ] && ! grep -q '.local/bin' "$rc" 2>/dev/null; then
                 echo "" >> "$rc"
@@ -108,7 +123,50 @@ if ! echo "$PATH" | tr ':' '\n' | grep -Fxq "$BIN_DIR"; then
     fi
 fi
 
-# ---- 验证 ----
+# ---- 初始化数据目录 ----
+mkdir -p "$HOME/.tunnel-mesh"
+if [ ! -f "$HOME/.tunnel-mesh/config.json" ]; then
+    echo '{"servers":{},"edges":[],"ports":{"used":[],"next":2201}}' > "$HOME/.tunnel-mesh/config.json"
+    _ok "已初始化 ~/.tunnel-mesh/config.json"
+fi
+
+# ---- 冒烟测试 ----
+echo ""
+echo "冒烟测试..."
+SMOKE_OK=0
+export PATH="$BIN_DIR:$PATH"
+if "$BIN_DIR/tunnel-mesh" --version >/dev/null 2>&1; then
+    _ok "--version"
+    SMOKE_OK=$((SMOKE_OK + 1))
+else
+    _warn "--version 失败"
+fi
+if "$BIN_DIR/tunnel-mesh" --cmd server-list >/dev/null 2>&1; then
+    _ok "server-list"
+    SMOKE_OK=$((SMOKE_OK + 1))
+else
+    _warn "server-list 失败"
+fi
+if python3 -c "
+import sys
+sys.path.insert(0,'$INSTALL_DIR/scripts')
+from lib._json_op import load
+d=load()
+print('servers:',len(d.get('servers',{})))
+" >/dev/null 2>&1; then
+    _ok "json_op.load()"
+    SMOKE_OK=$((SMOKE_OK + 1))
+else
+    _warn "json_op.load() 失败"
+fi
+
+if [ "$SMOKE_OK" -lt 2 ]; then
+    _warn "部分冒烟测试未通过 ($SMOKE_OK/3)，请联系维护者"
+else
+    _ok "全部冒烟测试通过 ($SMOKE_OK/3)"
+fi
+
+# ---- 完成 ----
 echo ""
 echo "════════════════════════════════════════"
 echo "  安装完成！"
@@ -122,6 +180,8 @@ echo ""
 echo "  安装路径: $INSTALL_DIR"
 echo "  数据目录: ~/.tunnel-mesh/"
 echo ""
-echo "  如果 tunnel-mesh 命令不可用，请执行:"
+if [ "$AUTO_INSTALL" = true ]; then
+    echo "  PATH 已自动配置，重启 shell 或执行:"
+fi
 echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
 echo ""

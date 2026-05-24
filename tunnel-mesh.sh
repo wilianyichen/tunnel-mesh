@@ -6,6 +6,20 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ---- 非 TTY 自动降级（必须在参数解析之前） ----
+if [ ! -t 0 ]; then
+    if [ -z "${1:-}" ]; then
+        echo "Tunnel Mesh v$VERSION"
+        echo "用法: tunnel-mesh --cmd <命令> [参数...]"
+        echo "详情: tunnel-mesh --help"
+        exit 0
+    elif [ "${1}" != "--cmd" ] && [ "${1}" != "--help" ] && [ "${1}" != "-h" ] && \
+         [ "${1}" != "--version" ] && [ "${1}" != "-v" ]; then
+        # 裸命令自动转为 --cmd 模式：ssh node3 'tunnel-mesh server-list' → --cmd server-list
+        set -- --cmd "$@"
+    fi
+fi
+
 # ---- CLI 模式 ----
 case "${1:-}" in
     --help|-h)
@@ -21,6 +35,7 @@ case "${1:-}" in
         echo "  server-list                      列出所有服务器"
         echo "  server-add <name> <ip> [port] [user]"
         echo "  edge-list                        列出所有边"
+        echo "  edge-add <from> <to> <type> [port] [cmd] [maintainer]"
         echo "  edge-remove <id>                 删除边"
         echo "  fabric-list                      列出所有 Fabric"
         echo "  fabric-health [id]               健康检查"
@@ -34,7 +49,10 @@ case "${1:-}" in
         echo "  reachability                     生成网络可达报告"
         echo "  reachability-merge <r1.json>...  合并多机可达报告"
         echo "  import                           批量导入身份卡（stdin）"
-        echo "  deploy-guide                     按机器聚合部署指南（stdin）"
+        echo "  deploy-guide <r1.json>...         按机器聚合部署指南"
+        echo "  apply [--dry-run|--yes]         部署隧道（冲突检测 + systemd）"
+        echo "  status                           查看所有隧道运行状态"
+        echo "  health                           健康检查所有隧道"
         echo ""
         echo "5 个 Phase:"
         echo "  [1] 建立加密信任 — 生成/交换 SSH 密钥"
@@ -160,59 +178,48 @@ _first_run_check
 fi  # --cmd 模式跳过交互式检查
 
 # ---- --cmd 命令分发 ----
+TPY="$(command -v python3 || echo python3)"  # Python 解释器
+TPY_ENTRY="$SCRIPT_DIR/scripts/tunnel_mesh.py"
+
 _cmd_dispatch() {
     local cmd="${1:-}"; shift || true
     case "$cmd" in
-        server-list)
-            server_list
+        # -- 统一 Python 核心（纯数据操作） --
+        server-list|edge-list|fabric-list|fabric-cmds|viz|fabric-viz|tutorial|identity)
+            $TPY "$TPY_ENTRY" "$cmd" "$@"
             ;;
         server-add)
             [ $# -lt 2 ] && { echo "用法: tunnel-mesh --cmd server-add <name> <ip> [port] [user]"; exit 1; }
-            server_add "$@"
+            $TPY "$TPY_ENTRY" "$cmd" "$@"
             ;;
-        edge-list)
-            edge_list
+        edge-add)
+            [ $# -lt 3 ] && { echo "用法: tunnel-mesh --cmd edge-add <from> <to> <type> [port] [cmd] [maintainer]"; exit 1; }
+            $TPY "$TPY_ENTRY" "$cmd" "$@"
             ;;
         edge-remove)
             [ $# -lt 1 ] && { echo "用法: tunnel-mesh --cmd edge-remove <id>"; exit 1; }
-            edge_remove "$@"
-            ;;
-        fabric-list)
-            fabric_list
+            local host="${1#*→}"
+            $TPY "$TPY_ENTRY" "$cmd" "$@"
+            ssh_config_remove_host "$host"
             ;;
         fabric-health)
-            fabric_health "${1:-}"
-            ;;
-        fabric-cmds)
-            fabric_cmds
+            $TPY "$TPY_ENTRY" "$cmd" "${1:-}"
             ;;
         path)
             [ $# -lt 2 ] && { echo "用法: tunnel-mesh --cmd path <from> <to>"; exit 1; }
-            _path_json "$1" "$2"
-            ;;
-        viz)
-            graph_viz
-            ;;
-        fabric-viz)
-            fabric_viz
+            $TPY "$TPY_ENTRY" "$cmd" "$@"
             ;;
         port-allocate)
-            port_allocate
+            $TPY "$TPY_ENTRY" "$cmd"
             ;;
-        tutorial)
-            generate_tutorial
-            ;;
+        # -- 需要 bash 上下文（stdin / detect_identity） --
         reachability)
             detect_identity
-            do_reachability
+            $TPY "$TPY_ENTRY" reachability
             ;;
         reachability-merge)
             [ $# -lt 1 ] && { echo "用法: tunnel-mesh --cmd reachability-merge <report1.json> [report2.json ...]"; exit 1; }
-            python3 "$SCRIPT_DIR/scripts/lib/_reachability.py" merge "$@"
-            ;;
-        identity)
-            detect_identity
-            echo "${HOSTNAME:-unknown}"
+            $TPY "$TPY_ENTRY" reachability-merge "$@"
             ;;
         import)
             detect_identity
@@ -222,9 +229,30 @@ _cmd_dispatch() {
             detect_identity
             do_deploy_guide "$@"
             ;;
+        apply)
+            $TPY "$TPY_ENTRY" "$cmd" "$@"
+            ;;
+
+        status|health)
+            $TPY "$TPY_ENTRY" "$cmd"
+            ;;
+        "")
+            echo "Tunnel Mesh v$VERSION"
+            echo "用法: tunnel-mesh --cmd <命令> [参数...]"
+            echo ""
+            echo "可用命令:"
+            echo "  server-list, server-add, edge-list, edge-add, edge-remove"
+            echo "  reachability, reachability-merge, deploy-guide"
+            echo "  apply, status, health"
+            echo "  viz, path, port-allocate, tutorial, fabric-list, fabric-cmds"
+            echo "  identity, import"
+            echo ""
+            echo "详情: tunnel-mesh --help"
+            exit 0
+            ;;
         *)
             echo "未知命令: $cmd"
-            echo "可用: server-list|server-add|edge-list|edge-remove|fabric-list|fabric-health|fabric-cmds|path|viz|fabric-viz|port-allocate|tutorial|reachability|reachability-merge|import|deploy-guide|identity"
+            echo "可用: server-list|server-add|edge-list|edge-add|edge-remove|fabric-list|fabric-health|fabric-cmds|path|viz|fabric-viz|port-allocate|tutorial|reachability|reachability-merge|import|deploy-guide|apply|status|health|identity"
             exit 1
             ;;
     esac
