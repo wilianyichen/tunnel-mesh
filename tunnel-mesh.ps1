@@ -1,12 +1,39 @@
 # Tunnel Mesh Windows — 信任阶段模型
-param()
+# 数据操作委托给 tunnel_mesh.py（Python 统一核心），Windows 特有功能保留在此
+param(
+    [string]$Cmd,
+    [string[]]$CmdArgs
+)
 $ScriptDir = Split-Path $0
 $TunnelDir = "C:\tunnel-mesh"
 $ScriptsDir = "$TunnelDir\scripts"
 $ConfigDir = "$env:USERPROFILE\.tunnel-mesh"
 $SshDir = "$env:USERPROFILE\.ssh"
+$Python = (Get-Command python3 -ErrorAction SilentlyContinue) ?? (Get-Command python -ErrorAction SilentlyContinue)
+$TunnelMeshPy = "$TunnelDir\scripts\tunnel_mesh.py"
 ni -Force -ItemType Directory $ScriptsDir, $TunnelDir, $ConfigDir, $SshDir | Out-Null
 
+# ---- --cmd 模式：委托 Python（和 bash 行为一致） ----
+if ($Cmd -eq "--cmd") {
+    if (-not $Python) { Write-Host "❌ 需要 python3" -ForegroundColor Red; exit 1 }
+    if ($CmdArgs.Count -eq 0) { & $Python $TunnelMeshPy "--help"; exit 0 }
+    & $Python $TunnelMeshPy @CmdArgs
+    exit $LASTEXITCODE
+}
+
+# 非交互模式：裸命令自动转为 --cmd
+if (-not [Environment]::UserInteractive -or -not $Host.UI.RawUI) {
+    if ($Cmd) {
+        & $Python $TunnelMeshPy $Cmd @CmdArgs
+        exit $LASTEXITCODE
+    }
+    Write-Host "Tunnel Mesh v3.0.0"
+    Write-Host "用法: .\tunnel-mesh.ps1 --cmd <命令> [参数...]"
+    Write-Host "详情: .\tunnel-mesh.ps1 --cmd help"
+    exit 0
+}
+
+# ---- 交互式菜单 ----
 $KeyFile = "$SshDir\id_ed25519"
 if (-not (Test-Path $KeyFile)) { $empty = ""; ssh-keygen -t ed25519 -f $KeyFile -N $empty -C "windows@tunnel" 2>$null }
 
@@ -18,7 +45,7 @@ function Show-Menu {
     Write-Host "║  [1] 建立加密信任 — 导出身份卡                   ║"
     Write-Host "║  [2] 建立网络信任 — 导入隧道命令                 ║"
     Write-Host "║  [3] 维持信任     — 查看/启动/停止隧道           ║"
-    Write-Host "║  [4] 审视信任     — 测试连接                     ║"
+    Write-Host "║  [4] 审视信任     — 查看服务器 + 测试连接        ║"
     Write-Host "║  [5] 撤销信任     — 删除隧道                     ║"
     Write-Host "║  [Q] 退出                                        ║"
     Write-Host "╚══════════════════════════════════════════════════╝"
@@ -72,6 +99,11 @@ function Export-Identity {
 
 function Show-Status {
     Clear-Host; Write-Host "`n════════════════════════════════════════"; Write-Host "  隧道状态"; Write-Host "════════════════════════════════════════`n"
+    # Python 核心查询 config.json
+    if ($Python -and (Test-Path $TunnelMeshPy)) {
+        & $Python $TunnelMeshPy status
+    }
+    Write-Host ""
     try { Get-ScheduledTask -TaskPath '\' | Where-Object { $_.TaskName -like 'Tunnel-*' } | Select-Object TaskName, State | Format-Table -AutoSize } catch { Write-Host "  暂无" }
     $saved = Get-ChildItem "$ConfigDir\tunnel-*.cmd" -ErrorAction SilentlyContinue
     if ($saved) { Write-Host "`n已保存命令:"; $saved | ForEach-Object { Write-Host "  $($_.BaseName)" } }
@@ -110,7 +142,7 @@ while ($true) {
         '1' { Export-Identity }
         '2' { Import-Tunnel }
         '3' { Show-Status; Manage-Tunnel }
-        '4' { $h = Read-Host "主机名"; ssh -o ConnectTimeout=5 $h "echo OK" 2>$null; if ($LASTEXITCODE -eq 0) { Write-Host "√ 连通" } else { Write-Host "×" }; Pause }
+        '4' { Show-Status; $h = Read-Host "主机名"; ssh -o ConnectTimeout=5 $h "echo OK" 2>$null; if ($LASTEXITCODE -eq 0) { Write-Host "√ 连通" } else { Write-Host "×" }; Pause }
         '5' { Remove-Tunnel }
         'q' { exit }
         'Q' { exit }

@@ -841,7 +841,23 @@ def main():
     if not fn:
         print(f"未知命令: {sys.argv[1]}\n可用: server-list|server-add|edge-list|edge-add|edge-remove|port-is-free|port-allocate|viz|tunnel-cmds|tutorial|path|identity|reachability|reachability-merge|deploy-guide|fabric-list|fabric-health|fabric-cmds|fabric-viz", file=sys.stderr)
         sys.exit(1)
-    fn(args)
+    try:
+        fn(args)
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON 解析失败: {e}", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"❌ 文件不存在: {e}", file=sys.stderr)
+        sys.exit(1)
+    except PermissionError as e:
+        print(f"❌ 权限不足: {e}", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, IOError) as e:
+        print(f"❌ 文件/网络错误: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"❌ 参数错误: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

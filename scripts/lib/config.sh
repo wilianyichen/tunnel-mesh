@@ -3,6 +3,11 @@
 set -o pipefail
 # 配置管理 - config.json 读写 + 备份 + 端口
 # 所有用户数据通过 argv 传入 Python，永不拼入代码字符串
+#
+# NOTE: 以下函数同时服务于交互式 TUI（phase*.sh）和 --cmd 模式。
+# --cmd 分发现在委托给 tunnel_mesh.py（Python 统一核心），
+# 但 TUI 仍直接调用此文件中的 bash 函数。
+# 未来统一方向: TUI 也调用 tunnel_mesh.py 子命令。
 # ========================================
 
 CONFIG_DIR="$HOME/.tunnel-mesh"

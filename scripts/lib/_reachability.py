@@ -10,8 +10,16 @@ from collections import defaultdict
 
 
 def load_report(path):
-    with open(path) as f:
-        return json.load(f)
+    try:
+        with open(path) as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError as e:
+                print(f"❌ 无效的报告文件: {path} — {e}", file=sys.stderr)
+                sys.exit(1)
+    except FileNotFoundError:
+        print(f"❌ 文件不存在: {path}", file=sys.stderr)
+        sys.exit(1)
 
 
 def merge_reports(reports):
@@ -27,7 +35,10 @@ def merge_reports(reports):
     node_ports = {}
     all_probed_ports = set()
 
-    for r in reports:
+    for i, r in enumerate(reports):
+        if "from" not in r:
+            print(f"❌ 报告 #{i+1} 缺少 'from' 字段，请确认传入的是单机可达报告（非合并后的矩阵）", file=sys.stderr)
+            sys.exit(1)
         frm = r["from"]
         if frm not in node_ips:
             node_ips[frm] = r.get("from_ip", "?")
@@ -460,12 +471,22 @@ def cmd_deploy_guide():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("usage: _reachability.py merge|deploy-guide <report...>", file=sys.stderr)
+    try:
+        if len(sys.argv) < 2:
+            print("usage: _reachability.py merge|deploy-guide <report...>", file=sys.stderr)
+            sys.exit(1)
+        cmd = sys.argv[1].replace("-", "_")
+        fn = globals().get(f"cmd_{cmd}")
+        if not fn:
+            print(f"unknown command: {cmd}", file=sys.stderr)
+            sys.exit(1)
+        fn()
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON 解析失败: {e}", file=sys.stderr)
         sys.exit(1)
-    cmd = sys.argv[1].replace("-", "_")
-    fn = globals().get(f"cmd_{cmd}")
-    if not fn:
-        print(f"unknown command: {cmd}", file=sys.stderr)
+    except FileNotFoundError as e:
+        print(f"❌ 文件不存在: {e}", file=sys.stderr)
         sys.exit(1)
-    fn()
+    except (OSError, IOError) as e:
+        print(f"❌ 文件/网络错误: {e}", file=sys.stderr)
+        sys.exit(1)
