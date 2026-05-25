@@ -39,12 +39,14 @@ do_fabric_list() {
     echo "════════════════════════════════════════"
     echo ""
     if [ ! -f "$FABRIC_PATH" ] || [ "$(python3 -c "import json,sys;d=json.load(sys.stdin);print(len(d.get('fabrics',{})))" < "$FABRIC_PATH")" = "0" ]; then
-        echo "  (无 Fabric)"
+        echo "  (无 Fabric，显示逻辑边)"
         echo ""
-        echo "  提示: 通过「Phase 2 → 递归建边」创建 Fabric"
-        return
+        edge_list
+        echo ""
+        echo "  提示: 通过「Phase 2 → 递归建边」创建 Fabric，或运行 migrate-v3.sh 迁移现有数据"
+    else
+        fabric_list
     fi
-    fabric_list
 }
 
 do_fabric_cmds() {
@@ -54,11 +56,14 @@ do_fabric_cmds() {
     echo "════════════════════════════════════════"
     echo ""
     if [ ! -f "$FABRIC_PATH" ] || [ "$(python3 -c "import json,sys;d=json.load(sys.stdin);print(len(d.get('fabrics',{})))" < "$FABRIC_PATH")" = "0" ]; then
-        echo "  (无 Fabric)"
-        return
+        echo "  (无 Fabric，显示 config.json 隧道命令)"
+        echo ""
+        ${TPY:-python3} "${TPY_ENTRY:-scripts/tunnel_mesh.py}" tunnel-cmds
+        echo "  提示: 维持者需持久化运行（推荐 autossh 或 systemd）"
+    else
+        fabric_cmds
+        echo "提示: 维持者需持久化运行（推荐 autossh 或 systemd）"
     fi
-    fabric_cmds
-    echo "提示: 维持者需持久化运行（推荐 autossh 或 systemd）"
 }
 
 do_fabric_health() {
@@ -69,7 +74,8 @@ do_fabric_health() {
     echo ""
 
     if [ ! -f "$FABRIC_PATH" ] || [ "$(python3 -c "import json,sys;d=json.load(sys.stdin);print(len(d.get('fabrics',{})))" < "$FABRIC_PATH")" = "0" ]; then
-        echo "  (无 Fabric)"
+        echo "  (无 Fabric，回退到基础健康检查)"
+        ${TPY:-python3} "${TPY_ENTRY:-scripts/tunnel_mesh.py}" health
         return
     fi
 
@@ -110,88 +116,16 @@ do_fabric_tutorial() {
     echo "════════════════════════════════════════"
     echo ""
 
+    local OUTPUT="$HOME/tunnel-mesh-tutorial.md"
     if [ ! -f "$FABRIC_PATH" ] || [ "$(python3 -c "import json,sys;d=json.load(sys.stdin);print(len(d.get('fabrics',{})))" < "$FABRIC_PATH")" = "0" ]; then
-        echo "  (无 Fabric)"
-        echo ""
-        echo "  使用旧格式教程生成..."
-        local OUTPUT="$HOME/tunnel-mesh-tutorial.md"
-        generate_tutorial > "$OUTPUT"
+        echo "  (无 Fabric，使用基础教程生成)"
+        ${TPY:-python3} "${TPY_ENTRY:-scripts/tunnel_mesh.py}" tutorial > "$OUTPUT"
         echo "  ✓ 教程已生成: $OUTPUT"
         return
     fi
 
-    fabric_list
-    echo ""
-    echo "  [A] 生成全部 Fabric 教程"
-    read -p "选择 Fabric ID 或 [A]: " FID
-
     local OUTPUT="$HOME/tunnel-mesh-tutorial.md"
-    {
-        echo "# Tunnel Mesh 教程"
-        echo ""
-        echo "生成时间: $(date)"
-        echo ""
-
-        if [ "$FID" = "A" ] || [ "$FID" = "a" ]; then
-            local all_fids
-            all_fids=$(python3 -c "
-import json,sys
-d = json.load(sys.stdin)
-for fid in d.get('fabrics', {}):
-    print(fid)
-" < "$FABRIC_PATH")
-            for fid in $all_fids; do
-                echo "## Fabric: $fid"
-                echo ""
-                fabric_get "$fid" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-if 'error' in d:
-    print(f\"  ❌ {d['error']}\")
-    sys.exit(0)
-print(f\"逻辑边: {d.get('logical_edge','?')}\")
-print(f\"端口: {d.get('port','?')}\")
-print(f\"状态: {d.get('status','?')}\")
-print()
-print('### 物理跳')
-for h in d.get('hops', []):
-    print(f\"  {h['seq']}: {h['from']} → {h['to']} ({h['type']}) 端口:{h.get('port','?')}\")
-    if h.get('cmd'):
-        print(f\"  命令: {h['cmd']}\")
-print()
-print('### 维持者')
-for m in d.get('maintainers', []):
-    print(f\"  {m['node']} [{m.get('persist','?')}]: {m.get('cmd','?')}\")
-print()
-"
-            done
-        elif [ -n "$FID" ]; then
-            echo "## Fabric: $FID"
-            echo ""
-            fabric_get "$FID" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-if 'error' in d:
-    print(f\"  ❌ {d['error']}\")
-    sys.exit(0)
-print(f\"逻辑边: {d.get('logical_edge','?')}\")
-print(f\"端口: {d.get('port','?')}\")
-print(f\"状态: {d.get('status','?')}\")
-print()
-print('### 物理跳')
-for h in d.get('hops', []):
-    print(f\"  {h['seq']}: {h['from']} → {h['to']} ({h['type']}) 端口:{h.get('port','?')}\")
-    if h.get('cmd'):
-        print(f\"  命令: {h['cmd']}\")
-print()
-print('### 维持者')
-for m in d.get('maintainers', []):
-    print(f\"  {m['node']} [{m.get('persist','?')}]: {m.get('cmd','?')}\")
-print()
-"
-        fi
-    } > "$OUTPUT"
-
+    ${TPY:-python3} "${TPY_ENTRY:-scripts/tunnel_mesh.py}" tutorial > "$OUTPUT"
     echo ""
     echo "  ✓ 教程已生成: $OUTPUT"
 }

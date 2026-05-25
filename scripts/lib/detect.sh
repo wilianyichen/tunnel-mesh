@@ -76,14 +76,14 @@ show_identity() {
 parse_identity_card() {
     local card
     card=$(cat)
-    _ID_NAME=$(echo "$card" | grep "^NAME=" | head -1 | cut -d= -f2)
-    _ID_IP=$(echo "$card" | grep "^IP=" | head -1 | cut -d= -f2)
-    _ID_PORT=$(echo "$card" | grep "^PORT=" | head -1 | cut -d= -f2)
-    _ID_USER=$(echo "$card" | grep "^USER=" | head -1 | cut -d= -f2)
-    _ID_PUBKEY=$(echo "$card" | grep "^PUBKEY=" | head -1 | cut -d= -f2-)
-    _ID_PUBLIC_IP=$(echo "$card" | grep "^PUBLIC_IP=" | head -1 | cut -d= -f2)
-    _ID_CHECKSUM=$(echo "$card" | grep "^CHECKSUM=" | head -1 | cut -d= -f2)
-    [ -z "$_ID_PUBKEY" ] || [ "$_ID_PUBKEY" = "PUBKEY=" ] && _ID_PUBKEY=$(echo "$card" | grep -E "^ssh-")
+    _ID_NAME=$(echo "$card" | { grep "^NAME=" || true; } | head -1 | cut -d= -f2)
+    _ID_IP=$(echo "$card" | { grep "^IP=" || true; } | head -1 | cut -d= -f2)
+    _ID_PORT=$(echo "$card" | { grep "^PORT=" || true; } | head -1 | cut -d= -f2)
+    _ID_USER=$(echo "$card" | { grep "^USER=" || true; } | head -1 | cut -d= -f2)
+    _ID_PUBKEY=$(echo "$card" | { grep "^PUBKEY=" || true; } | head -1 | cut -d= -f2-)
+    _ID_PUBLIC_IP=$(echo "$card" | { grep "^PUBLIC_IP=" || true; } | head -1 | cut -d= -f2)
+    _ID_CHECKSUM=$(echo "$card" | { grep "^CHECKSUM=" || true; } | head -1 | cut -d= -f2)
+    [ -z "$_ID_PUBKEY" ] || [ "$_ID_PUBKEY" = "PUBKEY=" ] && _ID_PUBKEY=$(echo "$card" | { grep -E "^ssh-" || true; })
 
     if [ -z "$_ID_NAME" ]; then
         echo "  ❌ 无效身份卡"

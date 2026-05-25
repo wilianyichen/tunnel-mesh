@@ -4,36 +4,180 @@ param(
     [string]$Cmd,
     [string[]]$CmdArgs
 )
-$ScriptDir = Split-Path $0
-$TunnelDir = "C:\tunnel-mesh"
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path (Get-Location) -Parent }
+$TunnelDir = $ScriptDir
 $ScriptsDir = "$TunnelDir\scripts"
 $ConfigDir = "$env:USERPROFILE\.tunnel-mesh"
 $SshDir = "$env:USERPROFILE\.ssh"
-$Python = (Get-Command python3 -ErrorAction SilentlyContinue) ?? (Get-Command python -ErrorAction SilentlyContinue)
+$Python = Get-Command python3 -ErrorAction SilentlyContinue
+if (-not $Python) { $Python = Get-Command python -ErrorAction SilentlyContinue }
 $TunnelMeshPy = "$TunnelDir\scripts\tunnel_mesh.py"
 ni -Force -ItemType Directory $ScriptsDir, $TunnelDir, $ConfigDir, $SshDir | Out-Null
 
-# ---- --cmd 模式：委托 Python（和 bash 行为一致） ----
-if ($Cmd -eq "--cmd") {
-    if (-not $Python) { Write-Host "❌ 需要 python3" -ForegroundColor Red; exit 1 }
-    if ($CmdArgs.Count -eq 0) { & $Python $TunnelMeshPy "--help"; exit 0 }
-    & $Python $TunnelMeshPy @CmdArgs
-    exit $LASTEXITCODE
+# ═══════════════════════════════════════════════════════════
+# 内部函数：非交互式注册 Scheduled Task
+# ═══════════════════════════════════════════════════════════
+function Register-TunnelNonInteractive {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$SshCommand
+    )
+
+    if ($SshCommand -notmatch 'ssh.*-R\s+(\d+)') {
+        Write-Host '{"status":"error","error":"无法解析端口号，命令必须包含 ssh -R <port>"}'
+        return 1
+    }
+    $port = $matches[1]
+    $taskName = "Tunnel-$port"
+    $scriptPath = "$ScriptsDir\tunnel-$port.ps1"
+    $wrapperPath = "$ScriptsDir\run-$port.bat"
+    $logPath = "$ConfigDir\tunnel-$port.log"
+
+    # 注入 keepalive 选项防止僵死连接
+    $enhancedCmd = $SshCommand
+    if ($SshCommand -match '^ssh\s') {
+        $enhancedCmd = $SshCommand -replace '^ssh\s', 'ssh -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes '
+    }
+
+    # 生成 wrapper PS1（无限重试 + 日志）
+    @"
+while (`$true) {
+    `$ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "[`$ts] 隧道启动 [端口:$port]" | Out-File -Append -Encoding utf8 "$logPath"
+    try {
+        $enhancedCmd 2>&1 | Out-File -Append -Encoding utf8 "$logPath"
+    } catch {
+        "[`$ts] 错误: `$_" | Out-File -Append -Encoding utf8 "$logPath"
+    }
+    "[`$ts] 隧道断开，10秒后重连..." | Out-File -Append -Encoding utf8 "$logPath"
+    Start-Sleep 10
+}
+"@ | Out-File -Encoding utf8 $scriptPath
+
+    # 生成 .bat 启动器（隐藏窗口）
+    "@powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`"" | Out-File -Encoding ascii $wrapperPath
+
+    # 注册 Scheduled Task
+    try {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:`$false -ErrorAction SilentlyContinue
+        $action = New-ScheduledTaskAction -Execute $wrapperPath
+        $trigger = New-ScheduledTaskTrigger -AtStartup
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force | Out-Null
+        Start-ScheduledTask -TaskName $taskName
+        $SshCommand | Out-File "$ConfigDir\tunnel-$port.cmd" -Encoding utf8
+        Write-Host "{\"status\":\"ok\",\"task_name\":\"$taskName\",\"port\":$port}"
+    } catch {
+        Write-Host "{\"status\":\"error\",\"task_name\":\"$taskName\",\"error\":\"$_\"}"
+        return 1
+    }
 }
 
-# 非交互模式：裸命令自动转为 --cmd
+# ═══════════════════════════════════════════════════════════
+# --cmd 子命令路由
+# ═══════════════════════════════════════════════════════════
+if ($Cmd -eq "--cmd") {
+    $subCmd = if ($CmdArgs.Count -gt 0) { $CmdArgs[0] } else { "" }
+    $subArgs = if ($CmdArgs.Count -gt 1) { $CmdArgs[1..($CmdArgs.Count - 1)] } else { @() }
+
+    switch ($subCmd) {
+        "python" {
+            # 透传 Python（现有行为）
+            if (-not $Python) { Write-Host "❌ 需要 python3" -ForegroundColor Red; exit 1 }
+            if ($subArgs.Count -eq 0) { & $Python $TunnelMeshPy "--help"; exit 0 }
+            & $Python $TunnelMeshPy @subArgs
+            exit $LASTEXITCODE
+        }
+        "register-tunnel" {
+            $sshCmd = $subArgs -join ' '
+            if (-not $sshCmd) { $sshCmd = Read-Host "粘贴 ssh -R 命令" }
+            Register-TunnelNonInteractive -SshCommand $sshCmd
+            exit $LASTEXITCODE
+        }
+        "unregister-tunnel" {
+            $port = if ($subArgs.Count -gt 0) { $subArgs[0] } else { Read-Host "端口号" }
+            $taskName = "Tunnel-$port"
+            try {
+                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:`$false -ErrorAction SilentlyContinue
+                Remove-Item "$ScriptsDir\tunnel-$port.ps1", "$ScriptsDir\run-$port.bat", "$ConfigDir\tunnel-$port.cmd" -ErrorAction SilentlyContinue
+                Write-Host "{\"status\":\"ok\",\"task_name\":\"$taskName\"}"
+            } catch {
+                Write-Host "{\"status\":\"error\",\"task_name\":\"$taskName\",\"error\":\"$_\"}"
+                exit 1
+            }
+        }
+        "list-tunnels" {
+            $jsonFormat = $subArgs -contains "--json"
+            try {
+                $tasks = Get-ScheduledTask -TaskPath '\' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like 'Tunnel-*' }
+                if ($jsonFormat) {
+                    $result = @()
+                    foreach ($t in $tasks) {
+                        $port = $t.TaskName -replace 'Tunnel-', ''
+                        $cmdFile = "$ConfigDir\tunnel-$port.cmd"
+                        $cmd = if (Test-Path $cmdFile) { (Get-Content $cmdFile -Raw).Trim() } else { "" }
+                        $result += @{ task_name = $t.TaskName; port = $port; state = $t.State; cmd = $cmd }
+                    }
+                    Write-Host ($result | ConvertTo-Json -Compress)
+                } else {
+                    if (-not $tasks) { Write-Host "  暂无隧道"; exit 0 }
+                    $tasks | Select-Object TaskName, State | Format-Table -AutoSize
+                }
+            } catch {
+                Write-Host '{"status":"error","error":"无法查询 Scheduled Tasks"}'
+                exit 1
+            }
+        }
+        "check-tunnel" {
+            $port = if ($subArgs.Count -gt 0) { $subArgs[0] } else { "" }
+            if (-not $port) { Write-Host '{"status":"error","error":"需要端口号"}' ; exit 1 }
+            $r = & nc -z localhost $port 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "{\"status\":\"ok\",\"port\":$port,\"listening\":true}"
+            } else {
+                Write-Host "{\"status\":\"ok\",\"port\":$port,\"listening\":false}"
+            }
+        }
+        "ensure-scripts" {
+            ni -Force -ItemType Directory $ScriptsDir, $ConfigDir, $SshDir | Out-Null
+            $KeyFile = "$SshDir\id_ed25519"
+            if (-not (Test-Path $KeyFile)) {
+                $empty = ""
+                ssh-keygen -t ed25519 -f $KeyFile -N $empty -C "windows@tunnel" 2>$null
+                Write-Host "{\"status\":\"ok\",\"action\":\"keygen\",\"key\":\"$KeyFile\"}"
+            } else {
+                Write-Host "{\"status\":\"ok\",\"action\":\"skip\",\"key\":\"$KeyFile\"}"
+            }
+        }
+        default {
+            # 向后兼容: 裸 --cmd <args> → 透传 Python
+            if (-not $Python) { Write-Host "❌ 需要 python3" -ForegroundColor Red; exit 1 }
+            if ($CmdArgs.Count -eq 0) { & $Python $TunnelMeshPy "--help"; exit 0 }
+            & $Python $TunnelMeshPy @CmdArgs
+            exit $LASTEXITCODE
+        }
+    }
+    exit 0
+}
+
+# 非交互模式：裸命令自动转为 --cmd python
 if (-not [Environment]::UserInteractive -or -not $Host.UI.RawUI) {
     if ($Cmd) {
+        if (-not $Python) { Write-Host "❌ 需要 python3"; exit 1 }
         & $Python $TunnelMeshPy $Cmd @CmdArgs
         exit $LASTEXITCODE
     }
     Write-Host "Tunnel Mesh v3.0.0"
-    Write-Host "用法: .\tunnel-mesh.ps1 --cmd <命令> [参数...]"
-    Write-Host "详情: .\tunnel-mesh.ps1 --cmd help"
+    Write-Host "用法: .\tunnel-mesh.ps1 --cmd <子命令> [参数...]"
+    Write-Host "子命令: python | register-tunnel | unregister-tunnel | list-tunnels | check-tunnel | ensure-scripts"
+    Write-Host "详情: .\tunnel-mesh.ps1 --cmd python help"
     exit 0
 }
 
-# ---- 交互式菜单 ----
+# ═══════════════════════════════════════════════════════════
+# 交互式菜单（保持原有体验不变）
+# ═══════════════════════════════════════════════════════════
 $KeyFile = "$SshDir\id_ed25519"
 if (-not (Test-Path $KeyFile)) { $empty = ""; ssh-keygen -t ed25519 -f $KeyFile -N $empty -C "windows@tunnel" 2>$null }
 
@@ -53,31 +197,9 @@ function Show-Menu {
 
 function Import-Tunnel {
     Clear-Host; Write-Host "`n粘贴 ssh -R 命令:"; Write-Host "──────────────────"
-    $cmd = Read-Host
-    if ($cmd -notmatch 'ssh.*-R') { Write-Host "格式错误"; Pause; return }
-    if ($cmd -match '-R\s+(\d+)') { $port = $matches[1] } else { $port = "tunnel" }
-    $taskName = "Tunnel-$port"
-    $scriptPath = "$ScriptsDir\tunnel-$port.ps1"
-    $wrapperPath = "$ScriptsDir\run-$port.bat"
-
-    @"
-while (`$true) {
-    `$ts = Get-Date -Format "HH:mm:ss"
-    Write-Output "`$ts [隧道:$port]"
-    $cmd
-    Start-Sleep 10
-}
-"@ | Out-File -Encoding utf8 $scriptPath
-
-    "@powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`"" | Out-File -Encoding ascii $wrapperPath
-
-    try {
-        Unregister-ScheduledTask -TaskName $taskName -Confirm:`$false -ErrorAction SilentlyContinue
-        Register-ScheduledTask -TaskName $taskName -Action (New-ScheduledTaskAction -Execute $wrapperPath) -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)) -RunLevel Highest -Force
-        Start-ScheduledTask -TaskName $taskName
-        Write-Host "√ $taskName 已创建并启动"
-    } catch { Write-Host "× 失败: $_" }
-    $cmd | Out-File "$ConfigDir\tunnel-$port.cmd"
+    $sshCmd = Read-Host
+    if ($sshCmd -notmatch 'ssh.*-R') { Write-Host "格式错误"; Pause; return }
+    Register-TunnelNonInteractive -SshCommand $sshCmd | Out-Null
     Pause
 }
 
@@ -99,7 +221,6 @@ function Export-Identity {
 
 function Show-Status {
     Clear-Host; Write-Host "`n════════════════════════════════════════"; Write-Host "  隧道状态"; Write-Host "════════════════════════════════════════`n"
-    # Python 核心查询 config.json
     if ($Python -and (Test-Path $TunnelMeshPy)) {
         & $Python $TunnelMeshPy status
     }

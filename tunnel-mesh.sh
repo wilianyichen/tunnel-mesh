@@ -34,6 +34,8 @@ case "${1:-}" in
         echo "脚本模式命令:"
         echo "  server-list                      列出所有服务器"
         echo "  server-add <name> <ip> [port] [user]"
+        echo "  server-exists <name>             检查服务器是否存在"
+        echo "  server-remove <name>             删除服务器"
         echo "  edge-list                        列出所有边"
         echo "  edge-add <from> <to> <type> [port] [cmd] [maintainer]"
         echo "  edge-remove <id>                 删除边"
@@ -44,15 +46,23 @@ case "${1:-}" in
         echo "  viz                              逻辑拓扑图"
         echo "  fabric-viz                       物理拓扑图"
         echo "  port-allocate                    分配端口"
+        echo "  port-is-free <port>              检查端口是否可用"
         echo "  tutorial                         生成部署教程"
         echo "  identity                         显示当前节点名"
+        echo "  identity-import [card_text]      导入身份卡"
         echo "  reachability                     生成网络可达报告"
         echo "  reachability-merge <r1.json>...  合并多机可达报告"
         echo "  import                           批量导入身份卡（stdin）"
         echo "  deploy-guide <r1.json>...         按机器聚合部署指南"
         echo "  apply [--dry-run|--yes]         部署隧道（冲突检测 + systemd）"
+        echo "  key-deploy <server> [--key <path>] 部署公钥"
+        echo "  deploy-windows <server>           部署到 Windows"
+        echo "  discover [--ports ...]            自动拓扑探测，生成边建议"
+        echo "  quickstart [--non-interactive] [--yes] 引导式一键配置"
+        echo "  ensure <server|edge|key> ...      幂等操作，可安全重复执行"
         echo "  status                           查看所有隧道运行状态"
         echo "  health                           健康检查所有隧道"
+        echo "  upgrade                           从 GitHub 拉取最新版本"
         echo ""
         echo "5 个 Phase:"
         echo "  [1] 建立加密信任 — 生成/交换 SSH 密钥"
@@ -185,7 +195,7 @@ _cmd_dispatch() {
     local cmd="${1:-}"; shift || true
     case "$cmd" in
         # -- 统一 Python 核心（纯数据操作） --
-        server-list|edge-list|fabric-list|fabric-cmds|viz|fabric-viz|tutorial|identity)
+        server-list|server-exists|server-remove|edge-list|fabric-list|fabric-cmds|viz|fabric-viz|tutorial|identity|identity-import|port-is-free|fabric-health)
             $TPY "$TPY_ENTRY" "$cmd" "$@"
             ;;
         server-add)
@@ -202,15 +212,12 @@ _cmd_dispatch() {
             $TPY "$TPY_ENTRY" "$cmd" "$@"
             ssh_config_remove_host "$host"
             ;;
-        fabric-health)
-            $TPY "$TPY_ENTRY" "$cmd" "${1:-}"
-            ;;
         path)
             [ $# -lt 2 ] && { echo "用法: tunnel-mesh --cmd path <from> <to>"; exit 1; }
             $TPY "$TPY_ENTRY" "$cmd" "$@"
             ;;
         port-allocate)
-            $TPY "$TPY_ENTRY" "$cmd"
+            $TPY "$TPY_ENTRY" "$cmd" "$@"
             ;;
         # -- 需要 bash 上下文（stdin / detect_identity） --
         reachability)
@@ -229,12 +236,9 @@ _cmd_dispatch() {
             detect_identity
             do_deploy_guide "$@"
             ;;
-        apply)
+        # -- Phase 2/3 新命令（直接透传到 Python） --
+        key-deploy|deploy-windows|discover|quickstart|ensure|upgrade|apply|status|health)
             $TPY "$TPY_ENTRY" "$cmd" "$@"
-            ;;
-
-        status|health)
-            $TPY "$TPY_ENTRY" "$cmd"
             ;;
         help)
             echo "Tunnel Mesh v$VERSION — 命令参考"
@@ -242,7 +246,10 @@ _cmd_dispatch() {
             echo "服务器管理:"
             echo "  server-list                    列出所有服务器"
             echo "  server-add <name> <ip> [port]   添加服务器"
+            echo "  server-exists <name>            检查服务器是否存在"
+            echo "  server-remove <name>            删除服务器"
             echo "  identity                        显示当前节点名"
+            echo "  identity-import [card_text]     导入身份卡"
             echo "  import                          从 stdin 批量导入身份卡"
             echo ""
             echo "边与拓扑:"
@@ -250,7 +257,9 @@ _cmd_dispatch() {
             echo "  edge-add <from> <to> <type> ... 添加边"
             echo "  edge-remove <id>                删除边"
             echo "  viz                             逻辑拓扑图"
+            echo "  fabric-viz                      物理拓扑图"
             echo "  path <from> <to>                最短路径查询"
+            echo "  discover [--ports ...]           自动拓扑探测"
             echo ""
             echo "网络可达:"
             echo "  reachability [--ports a,b,...]  多端口并行可达探测"
@@ -259,14 +268,19 @@ _cmd_dispatch() {
             echo ""
             echo "部署与运维:"
             echo "  apply [--dry-run|--yes]         部署隧道（systemd + SSH config）"
+            echo "  key-deploy <server> [--key]     部署公钥到目标"
+            echo "  deploy-windows <server>          部署到 Windows"
+            echo "  quickstart [--non-interactive]   引导式一键配置"
+            echo "  ensure <server|edge|key> ...     幂等操作"
             echo "  status                          查看隧道运行状态"
             echo "  health                          健康检查"
             echo "  port-allocate                   分配可用端口"
+            echo "  port-is-free <port>             检查端口是否可用"
             echo "  tutorial                        生成部署教程"
             echo "  fabric-list                     列出 Fabric"
             echo "  fabric-health [id]              Fabric 健康检查"
             echo "  fabric-cmds                     列出维持命令"
-            echo "  fabric-viz                      物理拓扑图"
+            echo "  upgrade                          更新到最新版本"
             exit 0
             ;;
         "")
@@ -274,18 +288,22 @@ _cmd_dispatch() {
             echo "用法: tunnel-mesh --cmd <命令> [参数...]"
             echo ""
             echo "可用命令:"
-            echo "  server-list, server-add, edge-list, edge-add, edge-remove"
+            echo "  server-list, server-add, server-exists, server-remove"
+            echo "  edge-list, edge-add, edge-remove"
             echo "  reachability, reachability-merge, deploy-guide"
-            echo "  apply, status, health"
-            echo "  viz, path, port-allocate, tutorial, fabric-list, fabric-cmds"
-            echo "  identity, import"
+            echo "  discover, quickstart, ensure"
+            echo "  apply, key-deploy, deploy-windows, upgrade"
+            echo "  status, health"
+            echo "  viz, path, port-allocate, port-is-free, tutorial"
+            echo "  fabric-list, fabric-health, fabric-cmds, fabric-viz"
+            echo "  identity, identity-import, import"
             echo ""
             echo "详情: tunnel-mesh --help"
             exit 0
             ;;
         *)
             echo "未知命令: $cmd"
-            echo "可用: server-list|server-add|edge-list|edge-add|edge-remove|fabric-list|fabric-health|fabric-cmds|path|viz|fabric-viz|port-allocate|tutorial|reachability|reachability-merge|import|deploy-guide|apply|status|health|identity"
+            echo "可用: server-list|server-add|server-exists|server-remove|edge-list|edge-add|edge-remove|fabric-list|fabric-health|fabric-cmds|viz|fabric-viz|path|port-allocate|port-is-free|tutorial|identity|identity-import|reachability|reachability-merge|import|deploy-guide|apply|key-deploy|deploy-windows|discover|quickstart|ensure|status|health|upgrade"
             exit 1
             ;;
     esac

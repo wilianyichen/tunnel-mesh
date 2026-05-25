@@ -224,20 +224,20 @@ def cmd_fabric_health():
             hop_status["test"] = f"ssh -o ConnectTimeout=3 -o BatchMode=yes {tip} -p {tp}"
             if tip:
                 try:
-                    subprocess.run(
+                    r = subprocess.run(
                         ["timeout", "3", "ssh", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes",
                          "-o", "StrictHostKeyChecking=accept-new", "-p", str(tp), tip, "echo", "ok"],
                         capture_output=True, timeout=5
                     )
-                    hop_status["status"] = "reachable"
+                    hop_status["status"] = "reachable" if r.returncode == 0 else "unreachable"
                 except Exception:
                     hop_status["status"] = "unreachable"
         elif h.get("port", 0) > 0:
             port = h["port"]
             hop_status["test"] = f"nc -z localhost {port}"
             try:
-                subprocess.run(["nc", "-z", "localhost", str(port)], capture_output=True, timeout=3)
-                hop_status["status"] = "reachable"
+                r = subprocess.run(["nc", "-z", "localhost", str(port)], capture_output=True, timeout=3)
+                hop_status["status"] = "reachable" if r.returncode == 0 else "unreachable"
             except Exception:
                 hop_status["status"] = "unreachable"
         else:

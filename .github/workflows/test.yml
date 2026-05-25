@@ -1,0 +1,33 @@
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run smoke tests
+        run: python3 tests/test_smoke.py -v
+      - name: Run reachability tests
+        run: python3 tests/test_reachability.py -v
+      - name: Run graph tests
+        run: python3 tests/test_graph.py -v
+      - name: Run integration tests
+        run: python3 tests/test_integration.py -v
+
+  shell-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bats
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bats
+      - name: Run shell tests
+        run: bats tests/ -r
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck
+        uses: ludeeus/action-shellcheck@master

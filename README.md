@@ -68,21 +68,57 @@ tunnel-mesh --cmd health            # 健康检查
 |------|------|
 | `server-list` | 列出所有服务器 |
 | `server-add <name> <ip> [port] [user]` | 添加服务器 |
+| `server-exists <name>` | 检查服务器是否存在 |
+| `server-remove <name>` | 删除服务器 |
 | `edge-list` | 列出所有边 |
 | `edge-add <from> <to> <type> [port] [cmd] [maintainer]` | 添加边 |
 | `edge-remove <id>` | 删除边 |
 | `reachability [--ports a,b,c]` | 多端口并行 TCP 可达探测 |
 | `reachability-merge <report.json>...` | 合并多机报告，输出推荐边 |
 | `deploy-guide <report.json>...` | 按机器生成部署指南 |
+| `discover [--ports ...]` | 自动拓扑探测，生成边类型建议 |
+| `quickstart [--non-interactive] [--yes]` | 引导式一键配置 |
+| `ensure <server\|edge\|key> ...` | 幂等操作，可安全重复执行 |
 | `apply [--dry-run\|--yes]` | 部署隧道（systemd + SSH config） |
+| `key-deploy <server> [--key <path>]` | 部署公钥到目标服务器 |
+| `deploy-windows <server>` | 部署到 Windows（推送脚本 + Scheduled Task） |
 | `status` | 查看所有隧道运行状态 |
 | `health` | 健康检查（存活/断开） |
 | `viz` | ASCII 逻辑拓扑图 |
+| `fabric-viz` | 物理拓扑图 |
 | `path <from> <to>` | 查询最短路径 |
 | `port-allocate` | 分配下一个可用端口 |
+| `port-is-free <port>` | 检查端口是否可用 |
 | `tutorial` | 生成部署教程 markdown |
 | `identity` | 显示当前节点名 |
+| `identity-import [card_text]` | 导入身份卡 |
 | `import` | 从 stdin 批量导入身份卡 |
+| `upgrade` | 从 GitHub 拉取最新版本 |
+
+## Agent 模式（--json）
+
+所有命令支持 `--json` 输出，统一 schema，适合脚本和 AI agent 调用：
+
+```bash
+# 查询
+tunnel_mesh.py server-list --json     # {"status":"ok","data":{"servers":{...}}}
+tunnel_mesh.py server-exists aliyun --json  # {"status":"ok","data":{"exists":true}}
+tunnel_mesh.py discover --json        # {"status":"ok","data":{"suggestions":[...]}}
+
+# 幂等操作（agent 首选，可安全重复）
+tunnel_mesh.py ensure server aliyun 8.131.61.234 --json  # 已存在则 noop
+tunnel_mesh.py ensure edge a b forward 2224 "ssh ..." --json
+tunnel_mesh.py ensure key aliyun --json
+
+# 一键部署
+tunnel_mesh.py quickstart --non-interactive --yes --json
+
+# 非 TTY 自动 JSON（管道/脚本无需显式 --json）
+echo "" | tunnel_mesh.py server-list   # 自动输出 JSON
+tunnel_mesh.py server-list --no-json  # 显式人类可读
+```
+
+错误统一输出到 stderr：`{"status":"error","error":"<消息>"}`
 
 ## 非交互模式
 

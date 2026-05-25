@@ -157,53 +157,157 @@ def cmd_tunnel_cmds():
             print()
 
 def cmd_tutorial():
-    """Generate tutorial markdown"""
+    """Generate tutorial markdown — fabric.json 优先，fallback config.json"""
     d = load()
     hostname = os.environ.get("HOSTNAME", "localhost")
+
+    # 尝试读 fabric.json
+    fabric_path = os.path.expanduser("~/.tunnel-mesh/fabric.json")
+    fabric = {}
+    if os.path.isfile(fabric_path):
+        try:
+            with open(fabric_path) as f:
+                fabric = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    fabrics = fabric.get("fabrics", {})
+    use_fabric = bool(fabrics)
+
     print("# Tunnel Mesh 教程")
     print()
     print("生成时间:", os.environ.get("_NOW", ""))
     print()
-    print("## 拓扑图")
-    print()
-    print("```")
-    for e in d.get("edges", []):
-        t = e.get("type", "?")
-        arrow = "─隧道→" if t == "reverse" else "→"
-        print(f"  {e['from']} {arrow} {e['to']}  ({t})")
-    print("```")
-    print()
-    print("## 操作步骤")
-    print()
-    step = 1
-    for e in d.get("edges", []):
-        if e.get("type") != "reverse":
-            continue
-        print(f"### Step {step}: {e['from']} → {e['to']}（反向隧道）")
+
+    if use_fabric:
+        print("## 逻辑拓扑")
         print()
-        print(f"在 **{e['from']}** 上 SSH config 已自动配置:")
         print("```")
-        print(f"Host {e['to']}")
-        print("    HostName localhost")
-        print(f"    Port {e['tunnel_port']}")
+        for e in d.get("edges", []):
+            t = e.get("type", "?")
+            fid = e.get("fabric_id", "")
+            arrow = "─隧道→" if t == "reverse" else "──→"
+            fabric_tag = f"  [{fid}]" if fid else ""
+            print(f"  {e['from']} {arrow} {e['to']}  ({t}){fabric_tag}")
         print("```")
         print()
-        m = e.get("maintainer", "")
-        cmd = e.get("tunnel_cmd", "")
-        if m == "2":
-            print("把以下命令发给 **维持者 (Windows)**:")
+
+        for fid, fab in fabrics.items():
+            logical_edge = fab.get("logical_edge", "?")
+            port = fab.get("port", 0)
+            print(f"## Fabric: {fid}")
+            print(f"逻辑边: **{logical_edge}**  端口: `{port}`")
+            print()
+
+            hops = fab.get("hops", [])
+            if hops:
+                print("### 物理跳")
+                print()
+                print("| 序号 | 从 | 到 | 类型 | 端口 | 命令 |")
+                print("|------|----|----|------|------|------|")
+                for h in hops:
+                    seq = h.get("seq", "?")
+                    hfrom = h.get("from", "?")
+                    hto = h.get("to", "?")
+                    htype = h.get("type", "?")
+                    hport = h.get("port", 0)
+                    hcmd = h.get("cmd", "").replace("|", "\\|")
+                    print(f"| {seq} | {hfrom} | {hto} | {htype} | {hport or '-'} | `{hcmd}` |")
+                print()
+
+            maintainers = fab.get("maintainers", [])
+            if maintainers:
+                print("### 维持者（需持久化运行）")
+                print()
+                for m in maintainers:
+                    node = m.get("node", "?")
+                    role = m.get("role", "?")
+                    persist = m.get("persist", "manual")
+                    mcmd = m.get("cmd", "")
+                    print(f"- **{node}** [{role}] ({persist})")
+                    if mcmd:
+                        print(f"  ```bash")
+                        print(f"  {mcmd}")
+                        print(f"  ```")
+                print()
+
+            externals = fab.get("external_maintainers", [])
+            if externals:
+                print("### 外部维持者")
+                print()
+                for e in externals:
+                    ename = e.get("name", "?")
+                    eplatform = e.get("platform", "linux")
+                    ecmd = e.get("cmd", "")
+                    print(f"- **{ename}** @ {eplatform}")
+                    if eplatform == "windows":
+                        print(f"  在 Windows 上用 `tunnel-mesh.ps1` → [2] 导入以下命令:")
+                    if ecmd:
+                        print(f"  ```")
+                        print(f"  {ecmd}")
+                        print(f"  ```")
+                print()
+
+            transit = fab.get("transit_nodes", {})
+            if transit:
+                print("### 中转节点")
+                print()
+                for tname, tn in transit.items():
+                    print(f"- **{tname}**: {tn.get('ip','?')}:{tn.get('port',22)} ({tn.get('user','root')})")
+                print()
+
+        print("## 一键部署")
+        print()
+        print("在本机运行:")
+        print("```bash")
+        print("tunnel-mesh --cmd apply --yes")
+        print("```")
+        print("这将自动写入 SSH config 并生成 systemd 服务。")
+        print()
+
+    else:
+        # 旧格式 fallback
+        print("## 拓扑图")
+        print()
+        print("```")
+        for e in d.get("edges", []):
+            t = e.get("type", "?")
+            arrow = "─隧道→" if t == "reverse" else "→"
+            print(f"  {e['from']} {arrow} {e['to']}  ({t})")
+        print("```")
+        print()
+        print("## 操作步骤")
+        print()
+        step = 1
+        for e in d.get("edges", []):
+            if e.get("type") != "reverse":
+                continue
+            print(f"### Step {step}: {e['from']} → {e['to']}（反向隧道）")
+            print()
+            print(f"在 **{e['from']}** 上 SSH config 已自动配置:")
             print("```")
-            print(cmd)
+            print(f"Host {e['to']}")
+            print("    HostName localhost")
+            print(f"    Port {e['tunnel_port']}")
             print("```")
             print()
-            print("Windows: 双击 tunnel-mesh.bat → [1]导入 → 粘贴命令")
-        elif cmd:
-            print(f"在 **{e['to']}** 上运行:")
-            print("```")
-            print(cmd)
-            print("```")
-        print()
-        step += 1
+            m = e.get("maintainer", "")
+            cmd = e.get("tunnel_cmd", "")
+            if m == "2":
+                print("把以下命令发给 **维持者 (Windows)**:")
+                print("```")
+                print(cmd)
+                print("```")
+                print()
+                print("Windows: 双击 tunnel-mesh.bat → [1]导入 → 粘贴命令")
+            elif cmd:
+                print(f"在 **{e['to']}** 上运行:")
+                print("```")
+                print(cmd)
+                print("```")
+            print()
+            step += 1
+
     print("## 验证")
     print()
     print(f"在 **{hostname}** 上:")
@@ -241,21 +345,25 @@ def cmd_viz():
         print(f"  {name}  {s.get('ip','?')}:{s.get('port',22)}{extra}")
     if not edges:
         print("\n  (无边)")
-        return
-    print("\n边:")
-    # Build adjacency for layered output
-    adj = {}
-    for e in edges:
-        frm, to = e["from"], e["to"]
-        adj.setdefault(frm, []).append((to, e))
-    printed = set()
-    for e in edges:
-        frm, to, typ = e["from"], e["to"], e.get("type", "?")
-        label = f"{typ}"
-        if e.get("tunnel_port"):
-            label += f":{e['tunnel_port']}"
-        arrow = "─隧道→" if typ == "reverse" else "──→"
-        print(f"  {frm} {arrow} {to}  ({label})")
+    else:
+        print("\n边:")
+        for e in edges:
+            frm, to, typ = e["from"], e["to"], e.get("type", "?")
+            label = f"{typ}"
+            if e.get("tunnel_port"):
+                label += f":{e['tunnel_port']}"
+            arrow = "─隧道→" if typ == "reverse" else "──→"
+            print(f"  {frm} {arrow} {to}  ({label})")
+    # 提示 fabric 数据
+    fabric_path = os.path.expanduser("~/.tunnel-mesh/fabric.json")
+    if os.path.isfile(fabric_path):
+        try:
+            with open(fabric_path) as f:
+                fabric = json.load(f)
+            if fabric.get("fabrics"):
+                print(f"\n  物理拓扑: {len(fabric['fabrics'])} 个 Fabric（运行 fabric-viz 查看详情）")
+        except (json.JSONDecodeError, IOError):
+            pass
 
 
 if __name__ == "__main__":
