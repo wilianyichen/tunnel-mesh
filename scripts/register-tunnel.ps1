@@ -1,4 +1,5 @@
 # Tunnel Mesh - 注册隧道服务（支持命令行直接传入 SSH 命令）
+# 重启策略由 Scheduled Task RestartInterval 负责，wrapper 只做单次执行
 param(
     [string]$TaskName,
     [string]$ScriptPath,
@@ -9,7 +10,6 @@ param(
 if ($SshCommand) {
     if ($SshCommand -match '-R\s+(\d+)') { $port = $matches[1] } else { $port = "tunnel" }
     if (-not $TaskName) { $TaskName = "Tunnel-$port" }
-    # 使用 PSScriptRoot（PS 3+自动变量）或回退到用户 .tunnel-mesh 目录
     $ScriptsDir = if ($PSScriptRoot) { $PSScriptRoot } else { "$env:USERPROFILE\.tunnel-mesh\scripts" }
     $ConfigDir = "$env:USERPROFILE\.tunnel-mesh"
     ni -Force -ItemType Directory $ScriptsDir, $ConfigDir | Out-Null
@@ -18,20 +18,17 @@ if ($SshCommand) {
     $wrapperPath = "$ScriptsDir\run-$port.bat"
     $logPath = "$ConfigDir\tunnel-$port.log"
 
-    # 注入 keepalive
-    $enhancedCmd = $SshCommand -replace '^ssh\s', 'ssh -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes '
+    # 注入 keepalive + 失败检测（与 Linux _generate_systemd_service 对齐）
+    $enhancedCmd = $SshCommand -replace '^ssh\s', 'ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o TCPKeepAlive=yes '
 
+    # wrapper 只做单次执行，重启由 Scheduled Task RestartInterval=10s 负责
     @"
-while (`$true) {
-    `$ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "[`$ts] 隧道启动 [端口:$port]" | Out-File -Append -Encoding utf8 "$logPath"
-    try {
-        $enhancedCmd 2>&1 | Out-File -Append -Encoding utf8 "$logPath"
-    } catch {
-        "[`$ts] 错误: `$_" | Out-File -Append -Encoding utf8 "$logPath"
-    }
-    "[`$ts] 隧道断开，10秒后重连..." | Out-File -Append -Encoding utf8 "$logPath"
-    Start-Sleep 10
+`$ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+"[`$ts] 隧道启动 [端口:$port]" | Out-File -Append -Encoding utf8 "$logPath"
+try {
+    $enhancedCmd 2>&1 | Out-File -Append -Encoding utf8 "$logPath"
+} catch {
+    "[`$ts] 错误: `$_" | Out-File -Append -Encoding utf8 "$logPath"
 }
 "@ | Out-File -Encoding utf8 $scriptPath
 
@@ -53,7 +50,8 @@ try {
 
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-WindowStyle Hidden -File `"$scriptPath`""
     $trigger = New-ScheduledTaskTrigger -AtStartup
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+    # RestartInterval=10s 对齐 Linux RestartSec=10（单层重启，不做内层 while 循环）
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Seconds 10)
 
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force
     Start-ScheduledTask -TaskName $TaskName

@@ -892,16 +892,27 @@ def _load_fabric():
 
 
 def _generate_systemd_service(name, cmd):
-    """生成 systemd user service 内容"""
+    """生成 systemd user service 内容，自动注入 SSH 保活/失败检测选项"""
+    # 注入关键 SSH 选项（幂等，已存在则跳过）
+    if "ServerAliveInterval" not in cmd:
+        cmd += " -o ServerAliveInterval=30 -o ServerAliveCountMax=3"
+    if "ExitOnForwardFailure" not in cmd:
+        cmd += " -o ExitOnForwardFailure=yes"
+    if "TCPKeepAlive" not in cmd:
+        cmd += " -o TCPKeepAlive=yes"
+    if " -N " not in cmd and not cmd.endswith(" -N"):
+        cmd = cmd.replace("ssh ", "ssh -N ", 1)
+
     return f"""[Unit]
 Description=Tunnel Mesh: {name}
 After=network-online.target
 Wants=network-online.target
 
 [Service]
+Type=simple
 ExecStart={cmd}
 Restart=always
-RestartSec=30
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
@@ -963,8 +974,9 @@ def cmd_apply(args, json_output=False):
 
             # 4. 隧道命令 + systemd service
             if cmd:
-                service_name = f"tunnel-mesh-{target}.service"
-                service_content = _generate_systemd_service(target, cmd)
+                from_node = e.get("from", "")
+                service_name = f"tunnel-mesh-rev-{from_node}-{target}.service"
+                service_content = _generate_systemd_service(f"{from_node}→{target} (reverse)", cmd)
                 plan["actions"].append({"type": "systemd_service", "name": service_name, "content": service_content})
                 plan["actions"].append({"type": "enable_service", "name": service_name, "cmd": f"systemctl --user enable --now {service_name}"})
 
@@ -976,6 +988,7 @@ def cmd_apply(args, json_output=False):
             ip = srv.get("ip", "?")
             target_port = srv.get("port", 22)
             user = srv.get("user", "root")
+            cmd = e.get("tunnel_cmd", "")
             if ip and ip != "?":
                 plan = {"id": eid, "type": etype, "port": target_port, "target": target, "actions": [], "warnings": [], "errors": []}
                 hosts.add(target)
@@ -985,6 +998,13 @@ def cmd_apply(args, json_output=False):
                         plan["warnings"].append(f"SSH config 冲突: {c}")
                 ssh_entry = f"Host {target}\n    HostName {ip}\n    Port {target_port}\n    User {user}"
                 plan["actions"].append({"type": "ssh_config", "host": target, "content": ssh_entry})
+                # forward 边有 tunnel_cmd 时也生成 systemd service（维护本地端口转发）
+                if cmd:
+                    from_node = e.get("from", "")
+                    service_name = f"tunnel-mesh-fwd-{from_node}-{target}.service"
+                    service_content = _generate_systemd_service(f"{from_node}→{target} (forward)", cmd)
+                    plan["actions"].append({"type": "systemd_service", "name": service_name, "content": service_content})
+                    plan["actions"].append({"type": "enable_service", "name": service_name, "cmd": f"systemctl --user enable --now {service_name}"})
                 plans.append(plan)
 
         elif etype == "proxyjump":

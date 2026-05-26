@@ -16,6 +16,8 @@ ni -Force -ItemType Directory $ScriptsDir, $TunnelDir, $ConfigDir, $SshDir | Out
 
 # ═══════════════════════════════════════════════════════════
 # 内部函数：非交互式注册 Scheduled Task
+# 重启策略由 Scheduled Task RestartInterval=10s 负责（对齐 Linux RestartSec=10）
+# wrapper 脚本只做单次执行，不做内层 while 循环
 # ═══════════════════════════════════════════════════════════
 function Register-TunnelNonInteractive {
     param(
@@ -33,36 +35,32 @@ function Register-TunnelNonInteractive {
     $wrapperPath = "$ScriptsDir\run-$port.bat"
     $logPath = "$ConfigDir\tunnel-$port.log"
 
-    # 注入 keepalive 选项防止僵死连接
+    # 注入 keepalive + 失败检测（与 Linux _generate_systemd_service 对齐）
     $enhancedCmd = $SshCommand
     if ($SshCommand -match '^ssh\s') {
-        $enhancedCmd = $SshCommand -replace '^ssh\s', 'ssh -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes '
+        $enhancedCmd = $SshCommand -replace '^ssh\s', 'ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o TCPKeepAlive=yes '
     }
 
-    # 生成 wrapper PS1（无限重试 + 日志）
+    # wrapper PS1：单次执行，重启由 Scheduled Task RestartInterval=10s 负责
     @"
-while (`$true) {
-    `$ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "[`$ts] 隧道启动 [端口:$port]" | Out-File -Append -Encoding utf8 "$logPath"
-    try {
-        $enhancedCmd 2>&1 | Out-File -Append -Encoding utf8 "$logPath"
-    } catch {
-        "[`$ts] 错误: `$_" | Out-File -Append -Encoding utf8 "$logPath"
-    }
-    "[`$ts] 隧道断开，10秒后重连..." | Out-File -Append -Encoding utf8 "$logPath"
-    Start-Sleep 10
+`$ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+"[`$ts] 隧道启动 [端口:$port]" | Out-File -Append -Encoding utf8 "$logPath"
+try {
+    $enhancedCmd 2>&1 | Out-File -Append -Encoding utf8 "$logPath"
+} catch {
+    "[`$ts] 错误: `$_" | Out-File -Append -Encoding utf8 "$logPath"
 }
 "@ | Out-File -Encoding utf8 $scriptPath
 
     # 生成 .bat 启动器（隐藏窗口）
     "@powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`"" | Out-File -Encoding ascii $wrapperPath
 
-    # 注册 Scheduled Task
+    # 注册 Scheduled Task（RestartInterval=10s 对齐 Linux RestartSec=10）
     try {
         Unregister-ScheduledTask -TaskName $taskName -Confirm:`$false -ErrorAction SilentlyContinue
         $action = New-ScheduledTaskAction -Execute $wrapperPath
         $trigger = New-ScheduledTaskTrigger -AtStartup
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Seconds 10)
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force | Out-Null
         Start-ScheduledTask -TaskName $taskName
         $SshCommand | Out-File "$ConfigDir\tunnel-$port.cmd" -Encoding utf8
