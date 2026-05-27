@@ -921,10 +921,18 @@ WantedBy=default.target
 """
 
 
+def _detect_identity():
+    """返回本机节点名（用于 --local 过滤）"""
+    return os.environ.get("HOSTNAME", os.uname().nodename)
+
+
 def cmd_apply(args, json_output=False):
-    """部署隧道：检测冲突、写入 SSH config、生成 systemd service"""
+    """部署隧道：检测冲突、写入 SSH config、生成 systemd service
+    --local: 仅部署本机为 from 的边（agent 安全模式）
+    --json:  结构化输出"""
     dry_run = True
     yes_mode = False
+    local_only = False
     remaining = []
     i = 0
     while i < len(args):
@@ -938,12 +946,16 @@ def cmd_apply(args, json_output=False):
         elif args[i] == "--force":
             dry_run = False
             i += 1
+        elif args[i] == "--local":
+            local_only = True
+            i += 1
         else:
             remaining.append(args[i])
             i += 1
 
     d = config_load()
     edges = d.get("edges", [])
+    local_node = _detect_identity()
     hosts = set()
     plans = []
 
@@ -953,8 +965,11 @@ def cmd_apply(args, json_output=False):
         port = e.get("tunnel_port", 0)
         target = e.get("to", "")
         cmd = e.get("tunnel_cmd", "")
+        from_node = e.get("from", "")
 
-        if etype == "reverse" and port > 0:
+        # --local 过滤：仅部署本机为 from 的边
+        if local_only and from_node != local_node:
+            continue
             plan = {"id": eid, "type": etype, "port": port, "target": target, "actions": [], "warnings": [], "errors": []}
             hosts.add(target)
 
@@ -1061,6 +1076,10 @@ def cmd_apply(args, json_output=False):
             if not m_cmd:
                 continue
             node = m.get("node", "?")
+            # --local 过滤：仅部署本机为维持者的 fabric
+            if local_only and node != local_node:
+                continue
+            m_cmd = m.get("cmd", "")
             persist = m.get("persist", "manual")
             plan = {"id": f"{fid}/{node}", "type": "fabric_maintainer",
                     "port": 0, "target": node, "actions": [], "warnings": [], "errors": []}
@@ -1079,6 +1098,10 @@ def cmd_apply(args, json_output=False):
             if not ext_cmd:
                 continue
             ext_name = ext.get("name", "?")
+            # --local 过滤：外部维持者（Windows 等）不是本机，跳过
+            if local_only:
+                continue
+            ext_cmd = ext.get("cmd", "")
             ext_platform = ext.get("platform", "linux")
             plan = {"id": f"{fid}/{ext_name}", "type": "fabric_external",
                     "port": 0, "target": ext_name, "actions": [], "warnings": [], "errors": []}
@@ -1095,14 +1118,59 @@ def cmd_apply(args, json_output=False):
             plans.append(plan)
 
     # 输出
+    total_actions = 0
+    warnings_count = 0
+    for plan in plans:
+        for a in plan["actions"]:
+            total_actions += 1
+
+    if json_output:
+        result = {
+            "dry_run": dry_run,
+            "local_node": local_node if local_only else None,
+            "local_only": local_only,
+            "plans": [],
+            "total_actions": total_actions,
+            "warnings_count": warnings_count,
+        }
+        for plan in plans:
+            plan_out = {"id": plan["id"], "type": plan["type"], "target": plan.get("target", ""),
+                        "port": plan.get("port", 0), "warnings": plan.get("warnings", []),
+                        "actions": []}
+            warnings_count += len(plan.get("warnings", []))
+            for a in plan["actions"]:
+                action_out = {"type": a["type"]}
+                if a["type"] == "ssh_config":
+                    action_out["host"] = a.get("host", "")
+                elif a["type"] == "systemd_service":
+                    action_out["name"] = a["name"]
+                elif a["type"] == "enable_service":
+                    action_out["cmd"] = a.get("cmd", "")
+                elif a["type"] == "info":
+                    action_out["text"] = a.get("text", "")
+                plan_out["actions"].append(action_out)
+            result["plans"].append(plan_out)
+        result["warnings_count"] = warnings_count
+
+        if not plans:
+            result["note"] = "无需要部署的隧道"
+            _json_ok(result)
+            return
+
+        if dry_run:
+            _json_ok(result)
+            return
+
+        # JSON 模式执行不需要交互确认，--yes 已隐含
+        _json_ok({**result, "executed": True, "results": _execute_plans(plans)})
+        return
+
+    # --- 人类可读输出（原有逻辑不变）---
     header = "🔍 预览模式 (--dry-run)" if dry_run else "🚀 执行模式"
     print(f"{header}\n")
     if not plans:
         print("(无需要部署的隧道)")
         return
-
-    total_actions = 0
-    warnings_count = 0
 
     for plan in plans:
         print(f"  [{plan['type'].upper()}] {plan['id']}")
@@ -1111,7 +1179,6 @@ def cmd_apply(args, json_output=False):
                 print(f"    ⚠ {w}")
                 warnings_count += 1
         for a in plan["actions"]:
-            total_actions += 1
             if a["type"] == "ssh_config":
                 print(f"    📝 SSH config: ~/.ssh/config")
                 print(f"       {a['content'].replace(chr(10), chr(10)+'       ')}")
@@ -1136,15 +1203,28 @@ def cmd_apply(args, json_output=False):
 
     # 实际执行
     print("\n执行中...")
+    results = _execute_plans(plans)
+    for r in results:
+        if r.get("ok"):
+            print(f"  ✓ {r['action']}")
+        else:
+            print(f"  ❌ {r['action']}: {r.get('error', '?')}")
+
+    print("\n✓ 部署完成")
+
+
+def _execute_plans(plans):
+    """执行部署计划，返回结构化结果列表（供 apply --json 和 apply 人类可读共用）"""
+    results = []
     is_windows = sys.platform == "win32"
     ssh_config_path = os.path.expanduser("~/.ssh/config")
     os.makedirs(os.path.dirname(ssh_config_path), exist_ok=True)
 
     if is_windows:
-        print("  ℹ Windows 上不生成 systemd 服务，请用 tunnel-mesh.ps1 [2] 导入隧道命令")
-    else:
-        systemd_user_dir = os.path.expanduser("~/.config/systemd/user")
-        os.makedirs(systemd_user_dir, exist_ok=True)
+        return [{"action": "info", "ok": True, "detail": "Windows 请用 tunnel-mesh.ps1 [2] 导入隧道命令"}]
+
+    systemd_user_dir = os.path.expanduser("~/.config/systemd/user")
+    os.makedirs(systemd_user_dir, exist_ok=True)
 
     # 备份 SSH config
     if os.path.isfile(ssh_config_path):
@@ -1157,22 +1237,23 @@ def cmd_apply(args, json_output=False):
             if a["type"] == "ssh_config":
                 ssh_entries.append(a["content"])
             elif a["type"] == "systemd_service":
-                if not is_windows:
-                    svc_path = os.path.join(systemd_user_dir, a["name"])
+                svc_path = os.path.join(systemd_user_dir, a["name"])
+                try:
                     with open(svc_path, "w") as f:
                         f.write(a["content"])
-                    print(f"  ✓ 写入 {svc_path}")
+                    results.append({"action": f"写入 {svc_path}", "ok": True})
+                except Exception as e:
+                    results.append({"action": f"写入 {svc_path}", "ok": False, "error": str(e)})
             elif a["type"] == "enable_service":
-                if not is_windows:
-                    import subprocess as _sp
-                    try:
-                        _sp.run(a["cmd"].split(), check=False)
-                        print(f"  ✓ {a['cmd']}")
-                    except Exception as e:
-                        print(f"  ❌ {e}")
+                import subprocess as _sp
+                try:
+                    _sp.run(a["cmd"].split(), check=False)
+                    results.append({"action": a["cmd"], "ok": True})
+                except Exception as e:
+                    results.append({"action": a["cmd"], "ok": False, "error": str(e)})
 
+    # 去重写入 SSH config
     if ssh_entries:
-        # 去重 SSH config 条目
         existing = set()
         if os.path.isfile(ssh_config_path):
             with open(ssh_config_path) as f:
@@ -1180,13 +1261,12 @@ def cmd_apply(args, json_output=False):
                     existing.add(line.strip())
         with open(ssh_config_path, "a") as f:
             for entry in ssh_entries:
-                # 简单去重：检查 Host 行是否已存在
                 host_line = entry.split("\n")[0].strip()
                 if host_line not in [l.strip() for l in existing]:
                     f.write("\n" + entry + "\n")
-                    print(f"  ✓ 添加 SSH config: {host_line}")
+                    results.append({"action": f"添加 SSH config: {host_line}", "ok": True})
 
-    print("\n✓ 部署完成")
+    return results
 
 
 def _confirm(prompt):
@@ -2247,10 +2327,20 @@ def cmd_ensure(args, json_output=False):
     if resource_type == "server":
         if len(rest) < 2:
             if json_output:
-                _json_err("ensure server 需要: <name> <ip> [port] [user]")
+                _json_err("ensure server 需要: <name> <ip> [port] [user] [--update-ip]")
             else:
-                print("用法: ensure server <name> <ip> [port] [user]", file=sys.stderr)
+                print("用法: ensure server <name> <ip> [port] [user] [--update-ip]", file=sys.stderr)
             sys.exit(1)
+        # 解析 --update-ip 标志
+        update_ip = False
+        clean_rest = []
+        for a in rest:
+            if a == "--update-ip":
+                update_ip = True
+            else:
+                clean_rest.append(a)
+        rest = clean_rest
+
         name, ip = rest[0], rest[1]
         port = rest[2] if len(rest) > 2 else "22"
         user = rest[3] if len(rest) > 3 else "root"
@@ -2258,6 +2348,24 @@ def cmd_ensure(args, json_output=False):
         d = config_load()
         existing = d.get("servers", {}).get(name)
         if existing:
+            if update_ip:
+                old_ip = existing.get("ip", "")
+                existing["ip"] = ip
+                existing["port"] = int(port)
+                existing["user"] = user
+                d["servers"][name] = existing
+                if not config_save(d):
+                    if json_output:
+                        _json_err("配置写入失败")
+                    else:
+                        print("❌ 配置写入失败", file=sys.stderr)
+                    sys.exit(1)
+                if json_output:
+                    _json_ok({"name": name, "ip": ip, "port": port, "user": user,
+                              "action": "updated", "old_ip": old_ip})
+                else:
+                    print(f"✓ {name}: IP 已更新 {old_ip} → {ip}")
+                return
             if json_output:
                 _json_ok({"name": name, "action": "noop", "reason": "已存在"})
             else:
@@ -2386,6 +2494,193 @@ def cmd_ensure(args, json_output=False):
         sys.exit(1)
 
 
+def _edge_service_name(edge):
+    """根据边类型返回对应的 systemd service 名称"""
+    frm = edge.get("from", "")
+    to = edge.get("to", "")
+    etype = edge.get("type", "")
+    if etype == "forward":
+        return f"tunnel-mesh-fwd-{frm}-{to}.service"
+    elif etype in ("reverse", "reverse_tunnel"):
+        return f"tunnel-mesh-rev-{frm}-{to}.service"
+    else:
+        return f"tunnel-mesh-{frm}-{to}.service"
+
+
+def cmd_service(args, json_output=False):
+    """管控单条隧道的 systemd service。
+    用法: service <edge-id|--all> <start|stop|restart|status>"""
+    if len(args) < 2:
+        if json_output:
+            _json_err("用法: service <edge-id|--all> <start|stop|restart|status>")
+        else:
+            print("用法: service <edge-id|--all> <start|stop|restart|status>", file=sys.stderr)
+        sys.exit(1)
+
+    target = args[0]
+    operation = args[1]
+    if operation not in ("start", "stop", "restart", "status"):
+        if json_output:
+            _json_err(f"无效操作: {operation}，可用: start, stop, restart, status")
+        else:
+            print(f"无效操作: {operation}", file=sys.stderr)
+        sys.exit(1)
+
+    d = config_load()
+    edges = d.get("edges", [])
+    fabric = _load_fabric()
+
+    # 收集所有 service 名称
+    svc_names = []
+    if target == "--all":
+        for e in edges:
+            svc_names.append(_edge_service_name(e))
+        for fid, fab in fabric.get("fabrics", {}).items():
+            for m in fab.get("maintainers", []):
+                node = m.get("node", "?")
+                svc_names.append(f"tunnel-mesh-fab-{fid}-{node}.service")
+    else:
+        # 按 edge id 查找
+        found = None
+        for e in edges:
+            if e.get("id") == target:
+                found = e
+                break
+        if not found:
+            if json_output:
+                _json_err(f"边 '{target}' 不存在")
+            else:
+                print(f"边 '{target}' 不存在", file=sys.stderr)
+            sys.exit(1)
+        svc_names.append(_edge_service_name(found))
+
+    import subprocess as _sp
+    results = []
+    for name in svc_names:
+        try:
+            r = _sp.run(["systemctl", "--user", operation, name], capture_output=True, text=True, timeout=15)
+            ok = r.returncode == 0
+            results.append({"service": name, "operation": operation, "ok": ok,
+                            "output": r.stdout.strip() or r.stderr.strip()})
+        except Exception as e:
+            results.append({"service": name, "operation": operation, "ok": False, "error": str(e)})
+
+    if json_output:
+        _json_ok({"operation": operation, "services": results})
+    else:
+        for r in results:
+            status_icon = "✓" if r["ok"] else "✗"
+            print(f"  {status_icon} {r['service']}: {r['operation']} {r.get('output', '')}")
+
+
+def cmd_repair(args, json_output=False):
+    """自愈：健康检查 → 重启失败的隧道 → 再检查。
+    用法: repair [--json]"""
+    d = config_load()
+    edges = d.get("edges", [])
+    fabric = _load_fabric()
+
+    # 1. 健康检查
+    import subprocess as _sp
+    failed_services = []
+    health_results = []
+
+    # 检查 edges
+    for e in edges:
+        eid = e.get("id", "?")
+        target = e.get("to", "")
+        port = e.get("tunnel_port", 0)
+        etype = e.get("type", "?")
+
+        passed = False
+        detail = ""
+        if etype == "forward":
+            srv = d.get("servers", {}).get(target, {})
+            ip = srv.get("ip", "?")
+            srv_port = srv.get("port", 22)
+            try:
+                _sp.run(["timeout", "5", "bash", "-c", f"echo >/dev/tcp/{ip}/{srv_port}"],
+                        check=True, capture_output=True)
+                passed = True
+            except Exception:
+                detail = f"{ip}:{srv_port} 不可达"
+        elif etype in ("reverse", "reverse_tunnel") and port > 0:
+            try:
+                _sp.run(["timeout", "2", "bash", "-c", f"echo >/dev/tcp/127.0.0.1/{port}"],
+                        check=True, capture_output=True)
+                passed = True
+            except Exception:
+                detail = f"localhost:{port} 隧道断开"
+
+        health_results.append({"id": eid, "type": etype, "passed": passed, "detail": detail})
+        if not passed:
+            svc_name = _edge_service_name(e)
+            failed_services.append({"id": eid, "service": svc_name, "detail": detail})
+
+    # 2. 重启失败的服务
+    repair_results = []
+    for fs in failed_services:
+        try:
+            r = _sp.run(["systemctl", "--user", "restart", fs["service"]],
+                        capture_output=True, text=True, timeout=15)
+            repair_results.append({**fs, "restarted": r.returncode == 0,
+                                   "output": r.stdout.strip() or r.stderr.strip()})
+        except Exception as e:
+            repair_results.append({**fs, "restarted": False, "error": str(e)})
+
+    # 3. 再检查（等待服务启动）
+    import time
+    time.sleep(2)
+    recheck_results = []
+    for fs in failed_services:
+        eid = fs["id"]
+        for e in edges:
+            if e.get("id") == eid:
+                port = e.get("tunnel_port", 0)
+                etype = e.get("type", "?")
+                alive = False
+                if etype == "forward":
+                    target_name = e.get("to", "")
+                    srv = d.get("servers", {}).get(target_name, {})
+                    ip = srv.get("ip", "?")
+                    srv_port = srv.get("port", 22)
+                    try:
+                        _sp.run(["timeout", "5", "bash", "-c", f"echo >/dev/tcp/{ip}/{srv_port}"],
+                                check=True, capture_output=True)
+                        alive = True
+                    except Exception:
+                        pass
+                elif port > 0:
+                    try:
+                        _sp.run(["timeout", "2", "bash", "-c", f"echo >/dev/tcp/127.0.0.1/{port}"],
+                                check=True, capture_output=True)
+                        alive = True
+                    except Exception:
+                        pass
+                recheck_results.append({"id": eid, "alive": alive})
+                break
+
+    result = {
+        "health": health_results,
+        "failed_count": len(failed_services),
+        "repairs": repair_results,
+        "recheck": recheck_results,
+    }
+    if json_output:
+        _json_ok(result)
+    else:
+        total = len(health_results)
+        failed = len(failed_services)
+        recovered = sum(1 for r in recheck_results if r.get("alive"))
+        print(f"健康: {total - failed}/{total} 通过")
+        if failed:
+            print(f"修复: 重启 {failed} 条隧道")
+            for r in repair_results:
+                icon = "✓" if r.get("restarted") else "✗"
+                print(f"  {icon} {r['id']}")
+            print(f"恢复: {recovered}/{failed}")
+
+
 # ═══════════════════════════════════════════════════════════
 # 命令分发
 # ═══════════════════════════════════════════════════════════
@@ -2420,13 +2715,15 @@ USAGE = """Tunnel Mesh v3.0.0 — 分布式 SSH 隧道网状连接工具
   fabric-viz                      物理拓扑图
   status                          查看所有隧道运行状态
   health                          健康检查所有隧道
-  apply [--dry-run|--yes]         部署隧道（冲突检测 + systemd 持久化）
+  apply [--dry-run|--yes] [--local] [--json]  部署隧道（--local 仅部署本机为 from 的边）
   key-deploy <server> [--key <path>] 部署公钥到目标服务器
   deploy-windows <server>          部署隧道到 Windows（推送脚本 + 注册启动任务）
   upgrade                          从 GitHub 拉取最新版本
   discover [--ports p1,p2,...]     自动探测拓扑，生成边类型建议
   quickstart [--non-interactive] [--yes] 引导式一键配置
-  ensure <server|edge|key> ...      幂等操作，可安全重复执行"""
+  ensure <server|edge|key> ...      幂等操作，可安全重复执行（server 支持 --update-ip）
+  service <edge-id|--all> <start|stop|restart|status>  管控隧道 systemd service
+  repair                          自愈：健康检查 → 重启失败隧道 → 再检查"""
 
 
 def main():
@@ -2452,7 +2749,7 @@ def main():
         if json_output:
             _json_err(f"未知命令: {sys.argv[1]}")
         else:
-            print(f"未知命令: {sys.argv[1]}\n可用: server-list|server-add|server-remove|server-exists|edge-list|edge-add|edge-remove|port-is-free|port-allocate|viz|tunnel-cmds|tutorial|path|identity|identity-import|reachability|reachability-merge|deploy-guide|fabric-list|fabric-health|fabric-cmds|fabric-viz|status|health|apply|key-deploy|deploy-windows|upgrade|discover|quickstart|ensure", file=sys.stderr)
+            print(f"未知命令: {sys.argv[1]}\n可用: server-list|server-add|server-remove|server-exists|edge-list|edge-add|edge-remove|port-is-free|port-allocate|viz|tunnel-cmds|tutorial|path|identity|identity-import|reachability|reachability-merge|deploy-guide|fabric-list|fabric-health|fabric-cmds|fabric-viz|status|health|apply|key-deploy|deploy-windows|upgrade|discover|quickstart|ensure|service|repair", file=sys.stderr)
         sys.exit(1)
     try:
         fn(args, json_output=json_output)

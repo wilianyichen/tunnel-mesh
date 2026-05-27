@@ -60,6 +60,8 @@ case "${1:-}" in
         echo "  discover [--ports ...]            自动拓扑探测，生成边建议"
         echo "  quickstart [--non-interactive] [--yes] 引导式一键配置"
         echo "  ensure <server|edge|key> ...      幂等操作，可安全重复执行"
+        echo "  service <edge-id|--all> <start|stop|restart|status>  管控隧道 systemd service"
+        echo "  repair                            自愈：健康检查 → 重启失败隧道 → 再检查"
         echo "  status                           查看所有隧道运行状态"
         echo "  health                           健康检查所有隧道"
         echo "  upgrade                           从 GitHub 拉取最新版本"
@@ -237,7 +239,7 @@ _cmd_dispatch() {
             do_deploy_guide "$@"
             ;;
         # -- Phase 2/3 新命令（直接透传到 Python） --
-        key-deploy|deploy-windows|discover|quickstart|ensure|upgrade|apply|status|health)
+        key-deploy|deploy-windows|discover|quickstart|ensure|upgrade|apply|status|health|service|repair)
             $TPY "$TPY_ENTRY" "$cmd" "$@"
             ;;
         help)
@@ -272,6 +274,8 @@ _cmd_dispatch() {
             echo "  deploy-windows <server>          部署到 Windows"
             echo "  quickstart [--non-interactive]   引导式一键配置"
             echo "  ensure <server|edge|key> ...     幂等操作"
+            echo "  service <edge-id|--all> ...      管控隧道 systemd service"
+            echo "  repair                          自愈修复"
             echo "  status                          查看隧道运行状态"
             echo "  health                          健康检查"
             echo "  port-allocate                   分配可用端口"
@@ -293,7 +297,7 @@ _cmd_dispatch() {
             echo "  reachability, reachability-merge, deploy-guide"
             echo "  discover, quickstart, ensure"
             echo "  apply, key-deploy, deploy-windows, upgrade"
-            echo "  status, health"
+            echo "  status, health, service, repair"
             echo "  viz, path, port-allocate, port-is-free, tutorial"
             echo "  fabric-list, fabric-health, fabric-cmds, fabric-viz"
             echo "  identity, identity-import, import"
@@ -303,7 +307,7 @@ _cmd_dispatch() {
             ;;
         *)
             echo "未知命令: $cmd"
-            echo "可用: server-list|server-add|server-exists|server-remove|edge-list|edge-add|edge-remove|fabric-list|fabric-health|fabric-cmds|viz|fabric-viz|path|port-allocate|port-is-free|tutorial|identity|identity-import|reachability|reachability-merge|import|deploy-guide|apply|key-deploy|deploy-windows|discover|quickstart|ensure|status|health|upgrade"
+            echo "可用: server-list|server-add|server-exists|server-remove|edge-list|edge-add|edge-remove|fabric-list|fabric-health|fabric-cmds|viz|fabric-viz|path|port-allocate|port-is-free|tutorial|identity|identity-import|reachability|reachability-merge|import|deploy-guide|apply|key-deploy|deploy-windows|discover|quickstart|ensure|service|repair|status|health|upgrade"
             exit 1
             ;;
     esac
