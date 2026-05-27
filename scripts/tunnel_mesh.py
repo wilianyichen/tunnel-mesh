@@ -2575,10 +2575,19 @@ def cmd_service(args, json_output=False):
 
 def cmd_repair(args, json_output=False):
     """自愈：健康检查 → 重启失败的隧道 → 再检查。
-    用法: repair [--json]"""
+    用法: repair [--scan] [--json]
+    --scan: 对远程节点断开的隧道，自动调用 discover-ip 尝试找回。"""
+    # 解析 --scan
+    do_scan = False
+    clean_args = [a for a in args if a != "--scan"]
+    if len(clean_args) < len(args):
+        do_scan = True
+    args = clean_args
+
     d = config_load()
     edges = d.get("edges", [])
     fabric = _load_fabric()
+    local_node = _detect_identity()
 
     # 1. 健康检查
     import subprocess as _sp
@@ -2615,11 +2624,37 @@ def cmd_repair(args, json_output=False):
         health_results.append({"id": eid, "type": etype, "passed": passed, "detail": detail})
         if not passed:
             svc_name = _edge_service_name(e)
-            failed_services.append({"id": eid, "service": svc_name, "detail": detail})
+            frm = e.get("from", "")
+            failed_services.append({"id": eid, "service": svc_name, "detail": detail,
+                                    "from": frm, "type": etype})
 
-    # 2. 重启失败的服务
+    # 1.5 --scan: 对远程节点的失败隧道，尝试 discover-ip
+    scan_results = []
+    if do_scan:
+        remote_failed = [fs for fs in failed_services
+                         if fs.get("type") in ("reverse", "reverse_tunnel")
+                         and fs.get("from") != local_node]
+        for fs in remote_failed:
+            frm = fs["from"]
+            if not json_output:
+                print(f"🔍 {frm} 隧道断开，扫描子网 ...")
+            sr = _discover_single_server(frm, quick=False)
+            scan_results.append(sr)
+            if sr.get("updated"):
+                fs["scan_found"] = True
+                fs["scan_new_ip"] = sr["new_ip"]
+                if not json_output:
+                    print(f"  ✓ 找到 {frm}: {sr['old_ip']} → {sr['new_ip']}")
+
+    # 2. 重启失败的服务（仅本机 service）
     repair_results = []
     for fs in failed_services:
+        frm = fs.get("from", "")
+        if frm and frm != local_node and fs.get("type") in ("reverse", "reverse_tunnel"):
+            # 远程节点：跳过 service 重启（由对端 Scheduled Task 负责）
+            repair_results.append({**fs, "restarted": False,
+                                   "output": f"远程节点 {frm}，跳过本地重启"})
+            continue
         try:
             r = _sp.run(["systemctl", "--user", "restart", fs["service"]],
                         capture_output=True, text=True, timeout=15)
@@ -2666,6 +2701,9 @@ def cmd_repair(args, json_output=False):
         "repairs": repair_results,
         "recheck": recheck_results,
     }
+    if do_scan and scan_results:
+        result["scan_results"] = scan_results
+
     if json_output:
         _json_ok(result)
     else:
@@ -2677,31 +2715,97 @@ def cmd_repair(args, json_output=False):
             print(f"修复: 重启 {failed} 条隧道")
             for r in repair_results:
                 icon = "✓" if r.get("restarted") else "✗"
-                print(f"  {icon} {r['id']}")
+                print(f"  {icon} {r['id']}: {r.get('output', '')}")
             print(f"恢复: {recovered}/{failed}")
 
 
-def _scan_subnet(subnet):
-    """TCP connect 扫描一个子网中所有 IP 的 22 端口。
-    返回: [{"ip": "x.x.x.x"}, ...]"""
+def cmd_scan_watch(args, json_output=False):
+    """cron 友好的定时扫描：对所有有 pubkey 的 server 做 quick 扫描，
+    IP 变化自动更新。--quiet 模式：无变化时不输出。
+    用法: scan-watch [--quiet] [--subnets ...] [--json]"""
+    quiet = False
+    subnets = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--quiet":
+            quiet = True
+        elif a == "--subnets" and i + 1 < len(args):
+            subnets = [s.strip() for s in args[i + 1].split(",") if s.strip()]
+            i += 1
+        i += 1
+
+    d = config_load()
+    servers = d.get("servers", {})
+    target_names = [n for n, s in servers.items() if s.get("pubkey")]
+
+    changes = []
+    for name in target_names:
+        r = _discover_single_server(name, quick=True, subnets=subnets)
+        if r.get("updated"):
+            changes.append(r)
+        elif r.get("error"):
+            pass  # 静默跳过不可扫描的 server
+
+    # 记录到日志
+    log_path = os.path.join(CONFIG_DIR, "scan-watch.log")
+    import datetime as _dt
+    ts = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    summary = f"[{ts}] 扫描 {len(target_names)} 台: {len(changes)} 变化"
+    try:
+        with open(log_path, "a") as lf:
+            if changes:
+                for c in changes:
+                    lf.write(f"[{ts}] {c['server']}: {c['old_ip']} → {c['new_ip']}\n")
+            else:
+                lf.write(f"{summary}\n")
+    except Exception:
+        pass
+
+    if json_output:
+        _json_ok({"changes": changes, "scanned": len(target_names)})
+    elif changes:
+        for c in changes:
+            print(f"✓ {c['server']}: {c['old_ip']} → {c['new_ip']}")
+    elif not quiet:
+        print(summary)
+
+
+def _try_connect(ip):
+    """单 IP 的 TCP connect 探测，供 _scan_subnet 并发调用"""
     import socket as _sock
+    s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+    s.settimeout(0.5)
+    try:
+        if s.connect_ex((ip, 22)) == 0:
+            return {"ip": ip}
+    except Exception:
+        pass
+    finally:
+        s.close()
+    return None
+
+
+def _scan_subnet(subnet, max_workers=50):
+    """并发 TCP connect 扫描一个子网中所有 IP 的 22 端口。
+    50 线程并发 → /24 扫描 ~2-5s（原串行 ~30s）。
+    返回: [{"ip": "x.x.x.x"}, ...]"""
     import ipaddress as _ipaddr
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     results = []
     try:
         net = _ipaddr.IPv4Network(subnet, strict=False)
     except ValueError:
         return results
-    for ip in net.hosts():
-        ip_str = str(ip)
-        s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
-        s.settimeout(0.3)
-        try:
-            if s.connect_ex((ip_str, 22)) == 0:
-                results.append({"ip": ip_str})
-        except Exception:
-            pass
-        finally:
-            s.close()
+    ips = [str(ip) for ip in net.hosts()]
+    if not ips:
+        return results
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(ips))) as executor:
+        futures = {executor.submit(_try_connect, ip): ip for ip in ips}
+        for f in as_completed(futures):
+            r = f.result()
+            if r:
+                results.append(r)
     return results
 
 
@@ -2741,12 +2845,95 @@ def _pubkey_to_fingerprint(pubkey):
     return None
 
 
+def _discover_single_server(name, quick=False, subnets=None, config=None):
+    """扫描子网发现单个 server 的新 IP。供 discover-ip 和 repair --scan 共用。
+    返回: dict with server, found, old_ip, new_ip, updated, scanned, candidates, error"""
+    d = config if config is not None else config_load()
+    servers = d.get("servers", {})
+    srv = servers.get(name)
+    if not srv:
+        return {"server": name, "found": False, "error": "server 不在 config 中"}
+    pubkey = srv.get("pubkey", "")
+    if not pubkey:
+        return {"server": name, "found": False, "error": "无 pubkey"}
+
+    target_fp = _pubkey_to_fingerprint(pubkey)
+    old_ip = srv.get("ip", "")
+
+    # 子网列表
+    scan_subnets = list(subnets) if subnets else []
+    if not scan_subnets:
+        if old_ip:
+            parts = old_ip.split(".")
+            if len(parts) == 4:
+                scan_subnets.append(f"{parts[0]}.{parts[1]}.{parts[2]}.0/24")
+
+    if not scan_subnets:
+        return {"server": name, "found": False, "error": "无子网可扫描"}
+
+    found_ip = None
+    candidates = []
+    total_scanned = 0
+    total_responsive = 0
+
+    for subnet in scan_subnets:
+        responsive = _scan_subnet(subnet)
+        try:
+            import ipaddress as _ipaddr
+            total_scanned += max(0, _ipaddr.IPv4Network(subnet, strict=False).num_addresses - 2)
+        except Exception:
+            total_scanned += 256
+        total_responsive += len(responsive)
+
+        for entry in responsive:
+            ip = entry["ip"]
+            if quick:
+                if ip == old_ip:
+                    candidates.append({"ip": ip, "matched": False, "reason": "quick: same as current"})
+                    continue
+                candidates.append({"ip": ip, "matched": False, "reason": "quick: needs keyscan to verify"})
+                continue
+
+            fp = _get_host_key_fingerprint(ip)
+            if fp is None:
+                candidates.append({"ip": ip, "matched": False, "reason": "keyscan timeout"})
+                continue
+
+            if target_fp and fp == target_fp:
+                candidates.append({"ip": ip, "matched": True})
+                if ip != old_ip:
+                    found_ip = ip
+                break
+            else:
+                candidates.append({"ip": ip, "matched": False, "reason": "fingerprint mismatch"})
+
+        if found_ip:
+            break
+
+    updated = False
+    if found_ip and found_ip != old_ip:
+        srv["ip"] = found_ip
+        srv["port"] = srv.get("port", 22)
+        srv["user"] = srv.get("user", "root")
+        d["servers"][name] = srv
+        if config_save(d):
+            updated = True
+
+    return {
+        "server": name,
+        "scanned": {"total": total_scanned, "responsive": total_responsive},
+        "found": found_ip is not None,
+        "old_ip": old_ip,
+        "new_ip": found_ip,
+        "updated": updated,
+        "candidates": candidates,
+    }
+
+
 def cmd_discover_ip(args, json_output=False):
     """子网扫描发现设备新 IP。
     用法: discover-ip <server> [--subnets a.b.c.0/24,...] [--quick]
           discover-ip --all [--subnets ...]"""
-    import time as _time
-
     # 解析参数
     target_all = False
     quick_mode = False
@@ -2776,101 +2963,17 @@ def cmd_discover_ip(args, json_output=False):
     d = config_load()
     servers = d.get("servers", {})
 
-    # 确定要扫描的 server 列表
     if target_all:
         target_names = [n for n, s in servers.items() if s.get("pubkey")]
     else:
         target_names = targets
 
-    # 确定子网列表：优先命令行参数，否则从 server IP 推断 /24
     all_results = []
     for name in target_names:
-        srv = servers.get(name)
-        if not srv:
-            all_results.append({"server": name, "found": False, "error": "server 不在 config 中"})
-            continue
-        pubkey = srv.get("pubkey", "")
-        if not pubkey:
-            all_results.append({"server": name, "found": False, "error": "无 pubkey"})
-            continue
-
-        # 计算目标指纹
-        target_fp = _pubkey_to_fingerprint(pubkey)
-
-        # 子网列表
-        scan_subnets = list(subnets)
-        if not scan_subnets:
-            ip = srv.get("ip", "")
-            if ip:
-                parts = ip.split(".")
-                if len(parts) == 4:
-                    scan_subnets.append(f"{parts[0]}.{parts[1]}.{parts[2]}.0/24")
-
-        if not scan_subnets:
-            all_results.append({"server": name, "found": False, "error": "无子网可扫描"})
-            continue
-
-        old_ip = srv.get("ip", "")
-        found_ip = None
-        candidates = []
-        total_scanned = 0
-        total_responsive = 0
-
-        for subnet in scan_subnets:
-            if not json_output:
-                print(f"扫描 {subnet} ...")
-            responsive = _scan_subnet(subnet)
-            try:
-                import ipaddress as _ipaddr
-                total_scanned += max(0, _ipaddr.IPv4Network(subnet, strict=False).num_addresses - 2)
-            except Exception:
-                total_scanned += 256
-            total_responsive += len(responsive)
-
-            for entry in responsive:
-                ip = entry["ip"]
-                if quick_mode:
-                    if ip == old_ip:
-                        candidates.append({"ip": ip, "matched": False, "reason": "quick: same as current"})
-                        continue
-                    candidates.append({"ip": ip, "matched": False, "reason": "quick: needs keyscan to verify"})
-                    continue
-
-                fp = _get_host_key_fingerprint(ip)
-                if fp is None:
-                    candidates.append({"ip": ip, "matched": False, "reason": "keyscan timeout"})
-                    continue
-
-                if target_fp and fp == target_fp:
-                    candidates.append({"ip": ip, "matched": True})
-                    if ip != old_ip:
-                        found_ip = ip
-                    break
-                else:
-                    candidates.append({"ip": ip, "matched": False, "reason": "fingerprint mismatch"})
-
-            if found_ip:
-                break
-
-        # 更新配置
-        updated = False
-        if found_ip:
-            srv["ip"] = found_ip
-            srv["port"] = srv.get("port", 22)
-            srv["user"] = srv.get("user", "root")
-            d["servers"][name] = srv
-            if config_save(d):
-                updated = True
-
-        all_results.append({
-            "server": name,
-            "scanned": {"total": total_scanned, "responsive": total_responsive},
-            "found": found_ip is not None,
-            "old_ip": old_ip,
-            "new_ip": found_ip,
-            "updated": updated,
-            "candidates": candidates,
-        })
+        if not json_output:
+            print(f"扫描 {name} ...")
+        r = _discover_single_server(name, quick=quick_mode, subnets=subnets)
+        all_results.append(r)
 
     if json_output:
         if target_all or len(all_results) > 1:
@@ -2932,8 +3035,9 @@ USAGE = """Tunnel Mesh v3.0.0 — 分布式 SSH 隧道网状连接工具
   quickstart [--non-interactive] [--yes] 引导式一键配置
   ensure <server|edge|key> ...      幂等操作，可安全重复执行（server 支持 --update-ip）
   service <edge-id|--all> <start|stop|restart|status>  管控隧道 systemd service
-  repair                          自愈：健康检查 → 重启失败隧道 → 再检查
-  discover-ip <server> [--subnets ...] [--quick]  子网扫描发现设备新 IP"""
+  repair [--scan]                 自愈：健康检查 → 重启失败隧道 → 再检查（--scan 自动发现远程节点）
+  discover-ip <server> [--subnets ...] [--quick]  子网扫描发现设备新 IP
+  scan-watch [--quiet] [--subnets ...]  定时扫描所有 server，IP 变化自动更新（cron 友好）"""
 
 
 def main():
@@ -2959,7 +3063,7 @@ def main():
         if json_output:
             _json_err(f"未知命令: {sys.argv[1]}")
         else:
-            print(f"未知命令: {sys.argv[1]}\n可用: server-list|server-add|server-remove|server-exists|edge-list|edge-add|edge-remove|port-is-free|port-allocate|viz|tunnel-cmds|tutorial|path|identity|identity-import|reachability|reachability-merge|deploy-guide|fabric-list|fabric-health|fabric-cmds|fabric-viz|status|health|apply|key-deploy|deploy-windows|upgrade|discover|discover-ip|quickstart|ensure|service|repair", file=sys.stderr)
+            print(f"未知命令: {sys.argv[1]}\n可用: server-list|server-add|server-remove|server-exists|edge-list|edge-add|edge-remove|port-is-free|port-allocate|viz|tunnel-cmds|tutorial|path|identity|identity-import|reachability|reachability-merge|deploy-guide|fabric-list|fabric-health|fabric-cmds|fabric-viz|status|health|apply|key-deploy|deploy-windows|upgrade|discover|discover-ip|scan-watch|quickstart|ensure|service|repair", file=sys.stderr)
         sys.exit(1)
     try:
         fn(args, json_output=json_output)
