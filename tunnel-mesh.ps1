@@ -38,7 +38,7 @@ function Register-TunnelNonInteractive {
     # 注入 keepalive + 失败检测（与 Linux _generate_systemd_service 对齐）
     $enhancedCmd = $SshCommand
     if ($SshCommand -match '^ssh\s') {
-        $enhancedCmd = $SshCommand -replace '^ssh\s', 'ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o TCPKeepAlive=yes '
+        $enhancedCmd = $SshCommand -replace '^ssh\s', 'ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o TCPKeepAlive=yes -N '
     }
 
     # wrapper PS1：单次执行，重启由 Scheduled Task RestartInterval=10s 负责
