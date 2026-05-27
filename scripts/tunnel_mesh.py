@@ -2681,6 +2681,215 @@ def cmd_repair(args, json_output=False):
             print(f"恢复: {recovered}/{failed}")
 
 
+def _scan_subnet(subnet):
+    """TCP connect 扫描一个子网中所有 IP 的 22 端口。
+    返回: [{"ip": "x.x.x.x"}, ...]"""
+    import socket as _sock
+    import ipaddress as _ipaddr
+    results = []
+    try:
+        net = _ipaddr.IPv4Network(subnet, strict=False)
+    except ValueError:
+        return results
+    for ip in net.hosts():
+        ip_str = str(ip)
+        s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+        s.settimeout(0.3)
+        try:
+            if s.connect_ex((ip_str, 22)) == 0:
+                results.append({"ip": ip_str})
+        except Exception:
+            pass
+        finally:
+            s.close()
+    return results
+
+
+def _get_host_key_fingerprint(ip, port=22):
+    """获取远程 SSH host key 的 SHA256 指纹（通过 ssh-keyscan + ssh-keygen）。
+    返回: "SHA256:xxxx..." 或 None"""
+    import subprocess as _sp
+    try:
+        r = _sp.run(["ssh-keyscan", "-p", str(port), "-T", "3", ip],
+                    capture_output=True, text=True, timeout=8)
+        for line in r.stdout.splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            r2 = _sp.run(["ssh-keygen", "-lf", "-"],
+                        input=line, capture_output=True, text=True, timeout=3)
+            parts = r2.stdout.strip().split()
+            if len(parts) >= 2:
+                return parts[1]
+    except Exception:
+        pass
+    return None
+
+
+def _pubkey_to_fingerprint(pubkey):
+    """将 config.json 中的公钥字符串转为 SHA256 指纹（与 ssh-keygen -lf 格式一致）。
+    返回: "SHA256:xxxx..." 或 None"""
+    import base64 as _b64
+    import hashlib as _hashlib
+    try:
+        parts = pubkey.strip().split()
+        if len(parts) >= 2:
+            raw = _b64.b64decode(parts[1])
+            h = _hashlib.sha256(raw).digest()
+            return "SHA256:" + _b64.b64encode(h).decode().rstrip("=")
+    except Exception:
+        pass
+    return None
+
+
+def cmd_discover_ip(args, json_output=False):
+    """子网扫描发现设备新 IP。
+    用法: discover-ip <server> [--subnets a.b.c.0/24,...] [--quick]
+          discover-ip --all [--subnets ...]"""
+    import time as _time
+
+    # 解析参数
+    target_all = False
+    quick_mode = False
+    subnets = []
+    targets = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--all":
+            target_all = True
+        elif a == "--quick":
+            quick_mode = True
+        elif a == "--subnets" and i + 1 < len(args):
+            subnets = [s.strip() for s in args[i + 1].split(",") if s.strip()]
+            i += 1
+        elif not a.startswith("--"):
+            targets.append(a)
+        i += 1
+
+    if not target_all and not targets:
+        if json_output:
+            _json_err("用法: discover-ip <server> [--subnets ...] [--quick]")
+        else:
+            print("用法: discover-ip <server> [--subnets a.b.c.0/24,...] [--quick]", file=sys.stderr)
+        sys.exit(1)
+
+    d = config_load()
+    servers = d.get("servers", {})
+
+    # 确定要扫描的 server 列表
+    if target_all:
+        target_names = [n for n, s in servers.items() if s.get("pubkey")]
+    else:
+        target_names = targets
+
+    # 确定子网列表：优先命令行参数，否则从 server IP 推断 /24
+    all_results = []
+    for name in target_names:
+        srv = servers.get(name)
+        if not srv:
+            all_results.append({"server": name, "found": False, "error": "server 不在 config 中"})
+            continue
+        pubkey = srv.get("pubkey", "")
+        if not pubkey:
+            all_results.append({"server": name, "found": False, "error": "无 pubkey"})
+            continue
+
+        # 计算目标指纹
+        target_fp = _pubkey_to_fingerprint(pubkey)
+
+        # 子网列表
+        scan_subnets = list(subnets)
+        if not scan_subnets:
+            ip = srv.get("ip", "")
+            if ip:
+                parts = ip.split(".")
+                if len(parts) == 4:
+                    scan_subnets.append(f"{parts[0]}.{parts[1]}.{parts[2]}.0/24")
+
+        if not scan_subnets:
+            all_results.append({"server": name, "found": False, "error": "无子网可扫描"})
+            continue
+
+        old_ip = srv.get("ip", "")
+        found_ip = None
+        candidates = []
+        total_scanned = 0
+        total_responsive = 0
+
+        for subnet in scan_subnets:
+            if not json_output:
+                print(f"扫描 {subnet} ...")
+            responsive = _scan_subnet(subnet)
+            try:
+                import ipaddress as _ipaddr
+                total_scanned += max(0, _ipaddr.IPv4Network(subnet, strict=False).num_addresses - 2)
+            except Exception:
+                total_scanned += 256
+            total_responsive += len(responsive)
+
+            for entry in responsive:
+                ip = entry["ip"]
+                if quick_mode:
+                    if ip == old_ip:
+                        candidates.append({"ip": ip, "matched": False, "reason": "quick: same as current"})
+                        continue
+                    candidates.append({"ip": ip, "matched": False, "reason": "quick: needs keyscan to verify"})
+                    continue
+
+                fp = _get_host_key_fingerprint(ip)
+                if fp is None:
+                    candidates.append({"ip": ip, "matched": False, "reason": "keyscan timeout"})
+                    continue
+
+                if target_fp and fp == target_fp:
+                    candidates.append({"ip": ip, "matched": True})
+                    if ip != old_ip:
+                        found_ip = ip
+                    break
+                else:
+                    candidates.append({"ip": ip, "matched": False, "reason": "fingerprint mismatch"})
+
+            if found_ip:
+                break
+
+        # 更新配置
+        updated = False
+        if found_ip:
+            srv["ip"] = found_ip
+            srv["port"] = srv.get("port", 22)
+            srv["user"] = srv.get("user", "root")
+            d["servers"][name] = srv
+            if config_save(d):
+                updated = True
+
+        all_results.append({
+            "server": name,
+            "scanned": {"total": total_scanned, "responsive": total_responsive},
+            "found": found_ip is not None,
+            "old_ip": old_ip,
+            "new_ip": found_ip,
+            "updated": updated,
+            "candidates": candidates,
+        })
+
+    if json_output:
+        if target_all or len(all_results) > 1:
+            _json_ok({"results": all_results})
+        else:
+            _json_ok(all_results[0])
+    else:
+        for r in all_results:
+            if r.get("error"):
+                print(f"✗ {r['server']}: {r['error']}")
+            elif r["found"]:
+                if r["updated"]:
+                    print(f"✓ {r['server']}: {r['old_ip']} → {r['new_ip']}（已更新）")
+                else:
+                    print(f"✓ {r['server']}: 仍在 {r['old_ip']}（无需更新）")
+            else:
+                print(f"✗ {r['server']}: 未找到（扫描 {r['scanned']['total']} 个 IP，{r['scanned']['responsive']} 个响应）")
+
+
 # ═══════════════════════════════════════════════════════════
 # 命令分发
 # ═══════════════════════════════════════════════════════════
@@ -2723,7 +2932,8 @@ USAGE = """Tunnel Mesh v3.0.0 — 分布式 SSH 隧道网状连接工具
   quickstart [--non-interactive] [--yes] 引导式一键配置
   ensure <server|edge|key> ...      幂等操作，可安全重复执行（server 支持 --update-ip）
   service <edge-id|--all> <start|stop|restart|status>  管控隧道 systemd service
-  repair                          自愈：健康检查 → 重启失败隧道 → 再检查"""
+  repair                          自愈：健康检查 → 重启失败隧道 → 再检查
+  discover-ip <server> [--subnets ...] [--quick]  子网扫描发现设备新 IP"""
 
 
 def main():
@@ -2749,7 +2959,7 @@ def main():
         if json_output:
             _json_err(f"未知命令: {sys.argv[1]}")
         else:
-            print(f"未知命令: {sys.argv[1]}\n可用: server-list|server-add|server-remove|server-exists|edge-list|edge-add|edge-remove|port-is-free|port-allocate|viz|tunnel-cmds|tutorial|path|identity|identity-import|reachability|reachability-merge|deploy-guide|fabric-list|fabric-health|fabric-cmds|fabric-viz|status|health|apply|key-deploy|deploy-windows|upgrade|discover|quickstart|ensure|service|repair", file=sys.stderr)
+            print(f"未知命令: {sys.argv[1]}\n可用: server-list|server-add|server-remove|server-exists|edge-list|edge-add|edge-remove|port-is-free|port-allocate|viz|tunnel-cmds|tutorial|path|identity|identity-import|reachability|reachability-merge|deploy-guide|fabric-list|fabric-health|fabric-cmds|fabric-viz|status|health|apply|key-deploy|deploy-windows|upgrade|discover|discover-ip|quickstart|ensure|service|repair", file=sys.stderr)
         sys.exit(1)
     try:
         fn(args, json_output=json_output)

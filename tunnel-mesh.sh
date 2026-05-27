@@ -58,6 +58,7 @@ case "${1:-}" in
         echo "  key-deploy <server> [--key <path>] 部署公钥"
         echo "  deploy-windows <server>           部署到 Windows"
         echo "  discover [--ports ...]            自动拓扑探测，生成边建议"
+        echo "  discover-ip <server> [--subnets ...] [--quick]  子网扫描发现设备新 IP"
         echo "  quickstart [--non-interactive] [--yes] 引导式一键配置"
         echo "  ensure <server|edge|key> ...      幂等操作，可安全重复执行"
         echo "  service <edge-id|--all> <start|stop|restart|status>  管控隧道 systemd service"
@@ -239,7 +240,7 @@ _cmd_dispatch() {
             do_deploy_guide "$@"
             ;;
         # -- Phase 2/3 新命令（直接透传到 Python） --
-        key-deploy|deploy-windows|discover|quickstart|ensure|upgrade|apply|status|health|service|repair)
+        key-deploy|deploy-windows|discover|discover-ip|quickstart|ensure|upgrade|apply|status|health|service|repair)
             $TPY "$TPY_ENTRY" "$cmd" "$@"
             ;;
         help)
@@ -262,6 +263,7 @@ _cmd_dispatch() {
             echo "  fabric-viz                      物理拓扑图"
             echo "  path <from> <to>                最短路径查询"
             echo "  discover [--ports ...]           自动拓扑探测"
+            echo "  discover-ip <server> ...         子网扫描发现设备新 IP"
             echo ""
             echo "网络可达:"
             echo "  reachability [--ports a,b,...]  多端口并行可达探测"
@@ -295,7 +297,7 @@ _cmd_dispatch() {
             echo "  server-list, server-add, server-exists, server-remove"
             echo "  edge-list, edge-add, edge-remove"
             echo "  reachability, reachability-merge, deploy-guide"
-            echo "  discover, quickstart, ensure"
+            echo "  discover, discover-ip, quickstart, ensure"
             echo "  apply, key-deploy, deploy-windows, upgrade"
             echo "  status, health, service, repair"
             echo "  viz, path, port-allocate, port-is-free, tutorial"
@@ -307,7 +309,7 @@ _cmd_dispatch() {
             ;;
         *)
             echo "未知命令: $cmd"
-            echo "可用: server-list|server-add|server-exists|server-remove|edge-list|edge-add|edge-remove|fabric-list|fabric-health|fabric-cmds|viz|fabric-viz|path|port-allocate|port-is-free|tutorial|identity|identity-import|reachability|reachability-merge|import|deploy-guide|apply|key-deploy|deploy-windows|discover|quickstart|ensure|service|repair|status|health|upgrade"
+            echo "可用: server-list|server-add|server-exists|server-remove|edge-list|edge-add|edge-remove|fabric-list|fabric-health|fabric-cmds|viz|fabric-viz|path|port-allocate|port-is-free|tutorial|identity|identity-import|reachability|reachability-merge|import|deploy-guide|apply|key-deploy|deploy-windows|discover|discover-ip|quickstart|ensure|service|repair|status|health|upgrade"
             exit 1
             ;;
     esac
